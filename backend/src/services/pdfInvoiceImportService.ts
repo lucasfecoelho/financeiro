@@ -221,12 +221,17 @@ export async function confirmPdfInvoiceImport(input: PdfInvoicePreview) {
 
   return {
     importBatchId: importBatch.id,
+    importType: "pdf_invoice" as const,
     invoiceId: invoice.id,
     totalRows: allRows.length,
     importedRows,
     duplicatedRows,
     needsReviewRows,
     reviewedRows,
+    periodStart: null,
+    periodEnd: null,
+    month: input.referenceMonth,
+    year: input.referenceYear,
     totalFromFile: input.totalFromFile,
     totalCalculated,
     difference: input.totalFromFile === null ? null : input.totalFromFile - totalCalculated,

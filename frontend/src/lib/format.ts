@@ -6,10 +6,17 @@ export function formatCurrency(value: number) {
 }
 
 export function formatDate(value: string) {
+  const normalizedValue = value.includes("T") ? value : `${value}T12:00:00`;
+  const date = new Date(normalizedValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "short",
-  }).format(new Date(`${value}T12:00:00`));
+  }).format(date);
 }
 
 export function currentMonthLabel() {

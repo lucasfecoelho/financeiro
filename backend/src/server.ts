@@ -6,6 +6,7 @@ import { backupsRouter } from "./routes/backups.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { categoryRulesRouter } from "./routes/categoryRules.js";
 import { dashboardRouter } from "./routes/dashboard.js";
+import { importBatchesRouter } from "./routes/importBatches.js";
 import { importRouter } from "./routes/import.js";
 import { invoicesRouter } from "./routes/invoices.js";
 import { settingsRouter } from "./routes/settings.js";
@@ -38,6 +39,7 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/invoices", invoicesRouter);
 app.use("/api/import", importRouter);
+app.use("/api/import-batches", importBatchesRouter);
 
 app.use(
   (

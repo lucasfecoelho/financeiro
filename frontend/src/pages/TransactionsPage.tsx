@@ -26,10 +26,28 @@ const defaultFilters: TransactionFilters = {
   source: "",
   direction: "",
   paymentMethod: "",
+  importBatchId: "",
+};
+
+type ImportFilterContext = {
+  importBatchId: string;
+  label?: string;
 };
 
 export function TransactionsPage() {
-  const [filters, setFilters] = useState<TransactionFilters>(defaultFilters);
+  const [importContext, setImportContext] = useState<ImportFilterContext | null>(
+    readImportFilterContext,
+  );
+  const [filters, setFilters] = useState<TransactionFilters>(() =>
+    importContext
+      ? {
+          ...defaultFilters,
+          month: "",
+          year: "",
+          importBatchId: importContext.importBatchId,
+        }
+      : defaultFilters,
+  );
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isManualFormOpen, setIsManualFormOpen] = useState(false);
@@ -197,6 +215,31 @@ export function TransactionsPage() {
         description="Edite a descrição limpa, escolha uma categoria e marque lançamentos como revisados. Tudo persiste no SQLite."
       />
 
+      {importContext && (
+        <Panel className="mb-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Exibindo lançamentos da importação {importContext.importBatchId}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                O filtro usa o lote da importação recém-confirmada, independentemente do mês selecionado.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setImportContext(null);
+                setFilters(defaultFilters);
+              }}
+              className="h-10 rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition hover:bg-accent"
+            >
+              Limpar filtro da importação
+            </button>
+          </div>
+        </Panel>
+      )}
+
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <StatusPill tone="positive">
@@ -323,7 +366,11 @@ export function TransactionsPage() {
           transactions.length === 0 && (
             <EmptyBlock
               title="Nenhum lançamento encontrado"
-              description="Ajuste os filtros ou importe um OFX para começar a revisar os movimentos da conta."
+              description={
+                importContext
+                  ? "Nenhum lançamento neste filtro. Talvez o arquivo tenha sido importado em outro mês, tenha sido todo duplicado ou não tenha gerado linhas novas."
+                  : "Nenhum lançamento neste filtro. Talvez o arquivo tenha sido importado em outro mês ou os filtros estejam estreitos demais."
+              }
               action={
                 <button
                   type="button"
@@ -886,6 +933,24 @@ const sourceTone: Record<ApiTransaction["source"], "neutral" | "positive" | "inv
 
 function navigateToPage(page: "inicio" | "importar" | "lancamentos" | "fatura-caixa" | "configuracoes") {
   window.dispatchEvent(new CustomEvent("financas:navigate", { detail: { page } }));
+}
+
+function readImportFilterContext(): ImportFilterContext | null {
+  const rawContext = window.sessionStorage.getItem("financas:transactions-filter");
+  window.sessionStorage.removeItem("financas:transactions-filter");
+
+  if (!rawContext) {
+    return null;
+  }
+
+  try {
+    const context = JSON.parse(rawContext) as Partial<ImportFilterContext>;
+    return typeof context.importBatchId === "string" && context.importBatchId
+      ? { importBatchId: context.importBatchId, label: context.label }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function isRecentlyImported(transaction: ApiTransaction) {

@@ -129,10 +129,11 @@ URLs padrao:
 
 ## Como testar a importacao OFX
 
-Existe uma fixture OFX Caixa ficticia e anonimizada em:
+Existem fixtures OFX Caixa ficticias e anonimizadas em:
 
 ```txt
 backend/fixtures/caixa-ofx-anonimizado.ofx
+backend/fixtures/caixa-ofx-abril-2026-anonimizado.ofx
 ```
 
 Roteiro manual:
@@ -140,14 +141,15 @@ Roteiro manual:
 1. Rode `npm run dev`.
 2. Acesse <http://localhost:5173/importar>.
 3. Escolha o modo `OFX da conta Caixa`.
-4. Selecione `backend/fixtures/caixa-ofx-anonimizado.ofx`.
+4. Selecione `backend/fixtures/caixa-ofx-abril-2026-anonimizado.ofx`.
 5. Na previa, confira banco `104`, conta, periodo e os 4 lancamentos.
 6. Edite pelo menos uma descricao limpa e uma categoria, mantendo outros itens em `A revisar` se desejar.
 7. Confirme a importacao.
 8. O resumo deve mostrar total lido, importados, duplicados ignorados e itens a revisar.
-9. Acesse `Lancamentos` e filtre maio de 2026 para ver os lancamentos OFX salvos no SQLite.
-10. Acesse `Inicio`, selecione maio de 2026 e confira receitas/despesas refletidas no dashboard.
-11. Importe o mesmo OFX novamente: a previa deve marcar os itens como possiveis duplicados e a confirmacao nao deve criar lancamentos repetidos.
+9. Clique em `Ver lancamentos desta importacao`; a tela Lancamentos deve abrir filtrada pelo `importBatchId`, sem depender do mes atual.
+10. Clique em `Ver resumo deste mes`; a tela Inicio deve abrir em abril de 2026.
+11. Clique em abril no seletor de mes e confirme que a tela nao quebra.
+12. Importe o mesmo OFX novamente: a previa deve marcar os itens como possiveis duplicados e a confirmacao nao deve criar lancamentos repetidos.
 
 A fixture nao contem dados reais sensiveis. Ela cobre `FITID` presente e ausente; quando o `FITID` nao vem no arquivo, o backend gera um `externalId` estavel a partir de banco, conta, data, valor e memo.
 
@@ -247,6 +249,7 @@ Roteiro manual:
 - `POST /api/import/ofx/confirm`
 - `POST /api/import/pdf-invoice/preview`
 - `POST /api/import/pdf-invoice/confirm`
+- `GET /api/import-batches`
 
 ## Scripts uteis
 

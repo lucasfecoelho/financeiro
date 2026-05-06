@@ -281,6 +281,7 @@ function buildTransactionWhere(query: Record<string, unknown>) {
     paymentMethod?: PaymentMethod;
     source?: TransactionSource;
     reviewStatus?: ReviewStatus;
+    importBatchId?: string;
   } = {};
 
   const month = toNumber(query.month);
@@ -311,6 +312,10 @@ function buildTransactionWhere(query: Record<string, unknown>) {
 
   if (isOneOf(query.reviewStatus, validReviewStatuses)) {
     where.reviewStatus = query.reviewStatus;
+  }
+
+  if (typeof query.importBatchId === "string" && query.importBatchId.trim()) {
+    where.importBatchId = query.importBatchId.trim();
   }
 
   return where;

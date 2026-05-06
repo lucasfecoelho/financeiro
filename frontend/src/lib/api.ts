@@ -10,6 +10,7 @@ import type {
   ApiDashboard,
   ApiInvoice,
   ApiInvoiceSummary,
+  ApiImportBatch,
   ApiOfxConfirmResult,
   ApiOfxPreview,
   ApiPdfInvoiceConfirmResult,
@@ -44,6 +45,7 @@ export const api = {
       body: { month, year, dashboard },
     }),
   backups: () => apiRequest<ApiBackup[]>("/api/backups"),
+  importBatches: () => apiRequest<ApiImportBatch[]>("/api/import-batches"),
   createBackup: () =>
     apiRequest<ApiBackup>("/api/backups/create", {
       method: "POST",

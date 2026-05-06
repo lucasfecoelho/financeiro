@@ -80,6 +80,7 @@ export type TransactionFilters = {
   paymentMethod?: ApiTransaction["paymentMethod"] | "";
   source?: ApiTransaction["source"] | "";
   reviewStatus?: ApiTransaction["reviewStatus"] | "";
+  importBatchId?: string;
 };
 
 export type UpdateTransactionInput = Partial<{
@@ -182,11 +183,16 @@ export type ApiOfxPreview = {
 
 export type ApiOfxConfirmResult = {
   importBatchId: string;
+  importType: "ofx";
   totalRows: number;
   importedRows: number;
   duplicatedRows: number;
   needsReviewRows: number;
   reviewedRows?: number;
+  periodStart: string | null;
+  periodEnd: string | null;
+  month: number | null;
+  year: number | null;
 };
 
 export type ApiPdfInvoicePreviewTransaction = {
@@ -221,15 +227,36 @@ export type ApiPdfInvoicePreview = {
 
 export type ApiPdfInvoiceConfirmResult = {
   importBatchId: string;
+  importType: "pdf_invoice";
   invoiceId: string;
   totalRows: number;
   importedRows: number;
   duplicatedRows: number;
   needsReviewRows: number;
   reviewedRows: number;
+  periodStart: string | null;
+  periodEnd: string | null;
+  month: number;
+  year: number;
   totalFromFile: number | null;
   totalCalculated: number;
   difference: number | null;
+};
+
+export type ApiImportBatch = {
+  id: string;
+  fileName: string;
+  fileType: "ofx" | "pdf_invoice" | "pdf_statement" | "txt" | "ofc";
+  detectedSource: "caixa_account" | "caixa_credit_card" | "unknown";
+  status: "previewed" | "imported" | "failed";
+  totalRows: number;
+  importedRows: number;
+  duplicatedRows: number;
+  createdAt: string;
+  updatedAt: string;
+  _count?: {
+    transactions: number;
+  };
 };
 
 export type ApiDashboardCategoryExpense = {

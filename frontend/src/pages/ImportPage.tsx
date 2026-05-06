@@ -8,6 +8,7 @@ import { useApiQuery } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api";
 import type {
   ApiCategory,
+  ApiImportBatch,
   ApiOfxConfirmResult,
   ApiOfxPreview,
   ApiOfxPreviewTransaction,
@@ -30,6 +31,7 @@ function getInitialImportMode(): ImportMode {
 export function ImportPage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
+  const historyRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<ImportMode>(getInitialImportMode);
   const [ofxPreview, setOfxPreview] = useState<ApiOfxPreview | null>(null);
   const [pdfPreview, setPdfPreview] = useState<ApiPdfInvoicePreview | null>(null);
@@ -40,6 +42,8 @@ export function ImportPage() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const { data: categories } = useApiQuery(api.categories);
+  const { data: importBatches, refetch: refetchImportBatches } =
+    useApiQuery(api.importBatches);
 
   const currentPreview = mode === "ofx" ? ofxPreview : pdfPreview;
 
@@ -89,11 +93,13 @@ export function ImportPage() {
       if (mode === "ofx" && ofxPreview) {
         const importResult = await api.confirmOfx(ofxPreview);
         setResult(importResult);
+        await refetchImportBatches();
       }
 
       if (mode === "pdf" && pdfPreview) {
         const importResult = await api.confirmPdfInvoice(pdfPreview);
         setResult(importResult);
+        await refetchImportBatches();
       }
     } catch (caughtError) {
       setError(
@@ -213,7 +219,9 @@ export function ImportPage() {
           <ImportResultPanel
             result={result}
             mode={mode}
-            onNavigate={navigateToPage}
+            onShowHistory={() =>
+              historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
             onReset={resetCurrentImport}
           />
         </div>
@@ -241,6 +249,9 @@ export function ImportPage() {
         />
       )}
 
+      <div ref={historyRef}>
+        <ImportHistoryPanel batches={importBatches ?? []} />
+      </div>
     </div>
   );
 }
@@ -252,15 +263,16 @@ function navigateToPage(page: PageId) {
 function ImportResultPanel({
   result,
   mode,
-  onNavigate,
+  onShowHistory,
   onReset,
 }: {
   result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult;
   mode: ImportMode;
-  onNavigate: (page: PageId) => void;
+  onShowHistory: () => void;
   onReset: () => void;
 }) {
   const needsReviewRows = "needsReviewRows" in result ? result.needsReviewRows : 0;
+  const periodLabel = formatImportPeriod(result);
   const allRowsAreDuplicates =
     result.totalRows > 0 &&
     result.importedRows === 0 &&
@@ -282,6 +294,12 @@ function ImportResultPanel({
 
   return (
     <Panel title={title} description={description} className="mt-6">
+      <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+        <Meta label="Arquivo referente a" value={periodLabel} />
+        <Meta label="Tipo" value={result.importType === "ofx" ? "OFX" : "PDF fatura"} />
+        <Meta label="Importação" value={result.importBatchId} />
+        <Meta label="Destino" value={result.importedRows > 0 ? "SQLite" : "Sem novos lançamentos"} />
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="Total lido" value={result.totalRows} />
         <SummaryCard label="Importados" value={result.importedRows} />
@@ -292,17 +310,18 @@ function ImportResultPanel({
       <div className="mt-5 flex flex-wrap gap-3">
         <button
           type="button"
-          onClick={() => onNavigate("lancamentos")}
-          className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
+          onClick={() => navigateToImportedTransactions(result)}
+          disabled={result.importedRows === 0}
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Ver lançamentos importados
+          Ver lançamentos desta importação
         </button>
         <button
           type="button"
-          onClick={() => onNavigate("inicio")}
+          onClick={() => navigateToImportedDashboard(result)}
           className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-accent"
         >
-          Ir para dashboard
+          Ver resumo deste mês
         </button>
         <button
           type="button"
@@ -314,13 +333,110 @@ function ImportResultPanel({
         {mode === "pdf" && "invoiceId" in result && (
           <button
             type="button"
-            onClick={() => onNavigate("fatura-caixa")}
+            onClick={() => navigateToPage("fatura-caixa")}
             className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition hover:bg-accent"
           >
             Ver fatura criada
           </button>
         )}
+        <button
+          type="button"
+          onClick={onShowHistory}
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition hover:bg-accent"
+        >
+          Ver todas as importações
+        </button>
       </div>
+    </Panel>
+  );
+}
+
+function navigateToImportedTransactions(
+  result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult,
+) {
+  window.sessionStorage.setItem(
+    "financas:transactions-filter",
+    JSON.stringify({
+      importBatchId: result.importBatchId,
+      month: result.month ? String(result.month) : "",
+      year: result.year ? String(result.year) : "",
+      label: `importação ${result.importBatchId}`,
+    }),
+  );
+  navigateToPage("lancamentos");
+}
+
+function navigateToImportedDashboard(
+  result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult,
+) {
+  if (result.month && result.year) {
+    window.sessionStorage.setItem(
+      "financas:dashboard-filter",
+      JSON.stringify({
+        month: String(result.month),
+        year: String(result.year),
+        source: "import",
+      }),
+    );
+  }
+  navigateToPage("inicio");
+}
+
+function formatImportPeriod(result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult) {
+  if (result.month && result.year) {
+    return `${monthNames[result.month - 1]}/${result.year}`;
+  }
+
+  if (result.periodStart || result.periodEnd) {
+    return [result.periodStart, result.periodEnd].filter(Boolean).join(" a ");
+  }
+
+  return "período não identificado";
+}
+
+function ImportHistoryPanel({ batches }: { batches: ApiImportBatch[] }) {
+  return (
+    <Panel
+      title="Histórico de importações"
+      description="Últimos arquivos confirmados e contagens gravadas no SQLite."
+      className="mt-6"
+    >
+      {batches.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Nenhuma importação confirmada ainda.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-border">
+          <div className="hidden grid-cols-[minmax(220px,1fr)_110px_96px_96px_110px_96px] gap-4 bg-secondary/70 px-4 py-3 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground xl:grid">
+            <span>Arquivo</span>
+            <span>Tipo</span>
+            <span>Total</span>
+            <span>Importados</span>
+            <span>Duplicados</span>
+            <span>Data</span>
+          </div>
+          <div className="divide-y divide-border/80">
+            {batches.map((batch) => (
+              <div
+                key={batch.id}
+                className="grid gap-3 px-4 py-4 text-sm xl:grid-cols-[minmax(220px,1fr)_110px_96px_96px_110px_96px] xl:items-center xl:gap-4"
+              >
+                <div>
+                  <p className="font-medium text-foreground">{batch.fileName}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{batch.id}</p>
+                </div>
+                <StatusPill tone={batch.fileType === "ofx" ? "positive" : "invoiceOpen"}>
+                  {batch.fileType === "ofx" ? "OFX" : "PDF"}
+                </StatusPill>
+                <span>{batch.totalRows}</span>
+                <span className="text-emerald-200">{batch.importedRows}</span>
+                <span className="text-amber-200">{batch.duplicatedRows}</span>
+                <span className="text-muted-foreground">{formatDate(batch.createdAt)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -892,3 +1008,18 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
     </article>
   );
 }
+
+const monthNames = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+];

@@ -207,11 +207,15 @@ export async function confirmOfxImport(input: ConfirmOfxImportInput) {
 
   return {
     importBatchId: updatedBatch.id,
+    importType: "ofx" as const,
     totalRows: input.transactions.length,
     importedRows,
     duplicatedRows,
     needsReviewRows,
     reviewedRows,
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
+    ...resolveImportPeriod(input.periodStart, input.periodEnd, input.transactions),
   };
 }
 
@@ -324,4 +328,30 @@ function normalizeReviewStatus(value: OfxPreviewTransaction["reviewStatus"]) {
   }
 
   return "needs_review";
+}
+
+function resolveImportPeriod(
+  periodStart: string | null,
+  periodEnd: string | null,
+  transactions: OfxPreviewTransaction[],
+) {
+  const dateText =
+    periodEnd ??
+    periodStart ??
+    transactions.find((transaction) => transaction.date)?.date ??
+    null;
+
+  if (!dateText) {
+    return {
+      month: null,
+      year: null,
+    };
+  }
+
+  const [year, month] = dateText.split("-").map(Number);
+
+  return {
+    month: Number.isInteger(month) && month >= 1 && month <= 12 ? month : null,
+    year: Number.isInteger(year) ? year : null,
+  };
 }

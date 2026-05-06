@@ -393,7 +393,14 @@ function PurchaseSection({
 }
 
 function buildInvoiceDate(invoice: ApiInvoice, day: number) {
-  return `${invoice.referenceYear}-${String(invoice.referenceMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const lastDayOfMonth = new Date(
+    invoice.referenceYear,
+    invoice.referenceMonth,
+    0,
+  ).getDate();
+  const safeDay = Math.min(Math.max(day, 1), lastDayOfMonth);
+
+  return `${invoice.referenceYear}-${String(invoice.referenceMonth).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
 }
 
 function navigateToPage(page: "inicio" | "importar" | "lancamentos" | "fatura-caixa" | "configuracoes") {

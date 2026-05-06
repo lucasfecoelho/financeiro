@@ -34,9 +34,18 @@ const currentDate = new Date();
 const defaultMonth = String(currentDate.getMonth() + 1);
 const defaultYear = String(currentDate.getFullYear());
 
+type DashboardImportContext = {
+  month: string;
+  year: string;
+  source?: "import";
+};
+
 export function HomePage() {
-  const [month, setMonth] = useState(defaultMonth);
-  const [year, setYear] = useState(defaultYear);
+  const [dashboardContext, setDashboardContext] = useState<DashboardImportContext | null>(
+    readDashboardImportContext,
+  );
+  const [month, setMonth] = useState(dashboardContext?.month ?? defaultMonth);
+  const [year, setYear] = useState(dashboardContext?.year ?? defaultYear);
   const dashboardKey = `${month}-${year}`;
   const {
     data: dashboard,
@@ -70,8 +79,24 @@ export function HomePage() {
         />
 
         <div className="grid gap-3 sm:w-[420px] sm:grid-cols-2">
-          <FilterField label="Mês" value={month} onChange={setMonth} options={monthOptions} />
-          <FilterField label="Ano" value={year} onChange={setYear} options={yearOptions} />
+          <FilterField
+            label="Mês"
+            value={month}
+            onChange={(value) => {
+              setDashboardContext(null);
+              setMonth(value);
+            }}
+            options={monthOptions}
+          />
+          <FilterField
+            label="Ano"
+            value={year}
+            onChange={(value) => {
+              setDashboardContext(null);
+              setYear(value);
+            }}
+            options={yearOptions}
+          />
           <button
             type="button"
             onClick={() => navigateToPage("lancamentos")}
@@ -88,6 +113,17 @@ export function HomePage() {
           </button>
         </div>
       </div>
+
+      {dashboardContext?.source === "import" && (
+        <Panel className="mb-6">
+          <p className="text-sm font-medium text-foreground">
+            Resumo do mês importado: {monthLabel(Number(month))}/{year}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            A importação recém-confirmada levou você direto para o mês dos lançamentos.
+          </p>
+        </Panel>
+      )}
 
       {isLoading && (
         <Panel>
@@ -354,6 +390,33 @@ function navigateToImport(mode: "ofx" | "pdf") {
   navigateToPage("importar");
 }
 
+function readDashboardImportContext(): DashboardImportContext | null {
+  const rawContext = window.sessionStorage.getItem("financas:dashboard-filter");
+  window.sessionStorage.removeItem("financas:dashboard-filter");
+
+  if (!rawContext) {
+    return null;
+  }
+
+  try {
+    const context = JSON.parse(rawContext) as Partial<DashboardImportContext>;
+    const month = Number(context.month);
+    const year = Number(context.year);
+
+    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year)) {
+      return null;
+    }
+
+    return {
+      month: String(month),
+      year: String(year),
+      source: context.source === "import" ? "import" : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function pickCurrentInvoice(invoices: ApiInvoice[], month: number, year: number) {
   return (
     invoices.find(
@@ -364,6 +427,10 @@ function pickCurrentInvoice(invoices: ApiInvoice[], month: number, year: number)
     invoices[0] ??
     null
   );
+}
+
+function monthLabel(month: number) {
+  return monthOptions.find((option) => option.value === String(month))?.label ?? "mês";
 }
 
 function FilterField({
