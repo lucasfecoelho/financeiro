@@ -1,6 +1,7 @@
 import { prisma } from "../lib/database.js";
 import type { ParsedPdfInvoice, ParsedPdfInvoiceTransaction } from "./pdfInvoiceParser.js";
 import { findMatchingRule } from "./categoryRuleService.js";
+import { logImportStep } from "./importDiagnostics.js";
 import {
   amountForLegacyComparison,
   normalizeTransactionAmount,
@@ -93,7 +94,6 @@ export async function confirmPdfInvoiceImport(input: PdfInvoicePreview) {
     ...input.internationalTransactions,
     ...input.fees,
   ];
-  const approvedRows = allRows.filter((row) => row.import && !row.possibleDuplicate);
   const settings = await prisma.setting.findMany();
   const settingsMap = new Map(settings.map((setting) => [setting.key, setting.value]));
   const cardName = settingsMap.get("cardName") ?? "Caixa";
@@ -135,9 +135,26 @@ export async function confirmPdfInvoiceImport(input: PdfInvoicePreview) {
   });
 
   let importedRows = 0;
-  let duplicatedRows = allRows.filter((row) => row.possibleDuplicate).length;
+  let duplicatedRows = 0;
+  let needsReviewRows = 0;
+  let reviewedRows = 0;
+  let skippedRows = 0;
 
-  for (const row of approvedRows) {
+  for (const row of allRows) {
+    if (!row.import) {
+      if (row.possibleDuplicate) {
+        duplicatedRows += 1;
+      } else {
+        skippedRows += 1;
+      }
+      continue;
+    }
+
+    if (row.possibleDuplicate) {
+      duplicatedRows += 1;
+      continue;
+    }
+
     const duplicate = await findPdfInvoiceDuplicate({
       row,
       cardLastDigits: input.cardLastDigits,
@@ -166,6 +183,11 @@ export async function confirmPdfInvoiceImport(input: PdfInvoicePreview) {
       },
     });
     importedRows += 1;
+    if (row.reviewStatus === "needs_review") {
+      needsReviewRows += 1;
+    } else {
+      reviewedRows += 1;
+    }
   }
 
   const totalCalculated = await calculateInvoiceTotal(invoice.id);
@@ -186,12 +208,25 @@ export async function confirmPdfInvoiceImport(input: PdfInvoicePreview) {
     },
   });
 
+  logImportStep("pdf.confirm.persisted", {
+    importBatchId: importBatch.id,
+    invoiceId: invoice.id,
+    totalRows: allRows.length,
+    importedRows,
+    duplicatedRows,
+    skippedRows,
+    needsReviewRows,
+    reviewedRows,
+  });
+
   return {
     importBatchId: importBatch.id,
     invoiceId: invoice.id,
     totalRows: allRows.length,
     importedRows,
     duplicatedRows,
+    needsReviewRows,
+    reviewedRows,
     totalFromFile: input.totalFromFile,
     totalCalculated,
     difference: input.totalFromFile === null ? null : input.totalFromFile - totalCalculated,

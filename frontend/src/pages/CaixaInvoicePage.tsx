@@ -159,6 +159,15 @@ export function CaixaInvoicePage() {
           <EmptyBlock
             title="Nenhuma fatura cadastrada ainda"
             description="Importe um PDF de fatura Caixa para ver totais, compras nacionais, internacionais, taxas e resumo por categoria."
+            action={
+              <button
+                type="button"
+                  onClick={() => navigateToImport("pdf")}
+                className="h-10 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
+              >
+                Importar PDF da fatura
+              </button>
+            }
           />
         </Panel>
       )}
@@ -385,6 +394,15 @@ function PurchaseSection({
 
 function buildInvoiceDate(invoice: ApiInvoice, day: number) {
   return `${invoice.referenceYear}-${String(invoice.referenceMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function navigateToPage(page: "inicio" | "importar" | "lancamentos" | "fatura-caixa" | "configuracoes") {
+  window.dispatchEvent(new CustomEvent("financas:navigate", { detail: { page } }));
+}
+
+function navigateToImport(mode: "ofx" | "pdf") {
+  window.sessionStorage.setItem("financas:import-mode", mode);
+  navigateToPage("importar");
 }
 
 function classifyInvoiceTransaction(transaction: ApiTransaction): SectionType {

@@ -9,7 +9,6 @@ import { useApiQuery } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api";
 import type {
   ApiCategory,
-  ApiAiTransactionSuggestion,
   ApiTransaction,
   CreateTransactionInput,
   TransactionFilters,
@@ -25,6 +24,8 @@ const defaultFilters: TransactionFilters = {
   categoryId: "",
   reviewStatus: "",
   source: "",
+  direction: "",
+  paymentMethod: "",
 };
 
 export function TransactionsPage() {
@@ -34,14 +35,6 @@ export function TransactionsPage() {
   const [isManualFormOpen, setIsManualFormOpen] = useState(false);
   const [editingManualTransaction, setEditingManualTransaction] =
     useState<ApiTransaction | null>(null);
-  const [aiState, setAiState] = useState<"idle" | "loading" | "applying" | "error">(
-    "idle",
-  );
-  const [aiMessage, setAiMessage] = useState<string | null>(null);
-  const [aiSuggestions, setAiSuggestions] = useState<ApiAiTransactionSuggestion[]>([]);
-  const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(
-    new Set(),
-  );
   const filtersKey = JSON.stringify(filters);
   const queryFilters = useMemo(() => filters, [filtersKey]);
   const {
@@ -56,11 +49,11 @@ export function TransactionsPage() {
     isLoading: isLoadingCategories,
     refetch: refetchCategories,
   } = useApiQuery(api.categories);
-  const { data: aiStatus } = useApiQuery(api.aiStatus);
   const transactions = apiTransactions ?? [];
   const pendingCount = transactions.filter(
     (transaction) => transaction.reviewStatus === "needs_review",
   ).length;
+  const recentlyImportedCount = transactions.filter(isRecentlyImported).length;
 
   async function updateTransaction(
     transactionId: string,
@@ -196,106 +189,6 @@ export function TransactionsPage() {
     }
   }
 
-  async function suggestWithAi() {
-    const candidates = transactions
-      .filter((transaction) => transaction.reviewStatus === "needs_review")
-      .slice(0, 20);
-
-    if (candidates.length === 0) {
-      setAiMessage("Não há lançamentos a revisar nos filtros atuais.");
-      return;
-    }
-
-    setAiState("loading");
-    setAiMessage(null);
-    setAiSuggestions([]);
-
-    try {
-      const result = await api.suggestTransactionsWithAi(
-        candidates.map((transaction) => ({
-          id: transaction.id,
-          descriptionOriginal: transaction.descriptionOriginal,
-          amount: Math.abs(transaction.amount),
-          direction: transaction.direction,
-          paymentMethod: transaction.paymentMethod,
-          source: transaction.source,
-        })),
-      );
-      setAiSuggestions(result.suggestions);
-      setSelectedSuggestionIds(
-        new Set(
-          result.suggestions
-            .map((suggestion) => suggestion.transactionId)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      );
-      setAiState("idle");
-      setAiMessage(
-        result.suggestions.length > 0
-          ? "Revise as sugestões antes de aplicar."
-          : "A IA não encontrou sugestões para estes lançamentos.",
-      );
-    } catch (caughtError) {
-      setAiState("error");
-      setAiMessage(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Não foi possível gerar sugestões com IA.",
-      );
-    }
-  }
-
-  async function applyAiSuggestions() {
-    const selectedSuggestions = aiSuggestions.filter(
-      (suggestion) =>
-        suggestion.transactionId && selectedSuggestionIds.has(suggestion.transactionId),
-    );
-
-    if (selectedSuggestions.length === 0) {
-      setAiMessage("Selecione pelo menos uma sugestão para aplicar.");
-      return;
-    }
-
-    setAiState("applying");
-    setAiMessage(null);
-
-    try {
-      await Promise.all(
-        selectedSuggestions.map((suggestion) =>
-          api.updateTransaction(suggestion.transactionId as string, {
-            descriptionClean: suggestion.descriptionClean,
-            categoryId: suggestion.categoryId,
-          }),
-        ),
-      );
-      await refetch();
-      setAiSuggestions([]);
-      setSelectedSuggestionIds(new Set());
-      setAiState("idle");
-      setAiMessage("Sugestões aplicadas. Revise os lançamentos antes de marcar como revisados.");
-    } catch (caughtError) {
-      setAiState("error");
-      setAiMessage(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Não foi possível aplicar as sugestões.",
-      );
-    }
-  }
-
-  function toggleAiSuggestion(transactionId: string) {
-    setSelectedSuggestionIds((current) => {
-      const next = new Set(current);
-      if (next.has(transactionId)) {
-        next.delete(transactionId);
-      } else {
-        next.add(transactionId);
-      }
-
-      return next;
-    });
-  }
-
   return (
     <div>
       <PageHeader
@@ -313,17 +206,18 @@ export function TransactionsPage() {
             {transactions.filter((item) => item.direction === "expense").length} despesas
           </StatusPill>
           <StatusPill tone="review">{pendingCount} a revisar</StatusPill>
+          {recentlyImportedCount > 0 && (
+            <StatusPill tone="neutral">{recentlyImportedCount} importados recentes</StatusPill>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => void suggestWithAi()}
-            disabled={!aiStatus?.enabled || aiState === "loading" || aiState === "applying"}
+            onClick={() => updateFilter("reviewStatus", "needs_review")}
             className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium text-muted-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-            title={aiStatus?.message}
           >
-            <Sparkles className="size-4" aria-hidden="true" />
-            {aiState === "loading" ? "Consultando IA..." : "Sugerir categorias com IA"}
+            <CheckCircle2 className="size-4" aria-hidden="true" />
+            Revisar pendências
           </button>
           <button
             type="button"
@@ -336,30 +230,8 @@ export function TransactionsPage() {
         </div>
       </div>
 
-      {aiStatus && !aiStatus.enabled && (
-        <p className="mb-5 text-sm text-muted-foreground">{aiStatus.message}</p>
-      )}
-
-      {(aiSuggestions.length > 0 || aiMessage) && (
-        <AiSuggestionsPanel
-          suggestions={aiSuggestions}
-          rows={transactions}
-          selectedIds={selectedSuggestionIds}
-          state={aiState}
-          message={aiMessage}
-          onToggle={toggleAiSuggestion}
-          onApply={() => void applyAiSuggestions()}
-          onDismiss={() => {
-            setAiSuggestions([]);
-            setSelectedSuggestionIds(new Set());
-            setAiMessage(null);
-            setAiState("idle");
-          }}
-        />
-      )}
-
       <Panel title="Filtros" className="mb-6">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
           <FilterField
             label="Mês"
             value={filters.month ?? ""}
@@ -405,6 +277,29 @@ export function TransactionsPage() {
               { label: "PDF fatura", value: "pdf_invoice" },
             ]}
           />
+          <FilterField
+            label="Direção"
+            value={filters.direction ?? ""}
+            onChange={(value) => updateFilter("direction", value)}
+            options={[
+              { label: "Todas", value: "" },
+              { label: "Receitas", value: "income" },
+              { label: "Despesas", value: "expense" },
+              { label: "Neutras", value: "neutral" },
+            ]}
+          />
+          <FilterField
+            label="Pagamento"
+            value={filters.paymentMethod ?? ""}
+            onChange={(value) => updateFilter("paymentMethod", value)}
+            options={[
+              { label: "Todos", value: "" },
+              { label: "Conta", value: "account" },
+              { label: "Débito", value: "debit" },
+              { label: "Crédito", value: "credit" },
+              { label: "Ajuste", value: "adjustment" },
+            ]}
+          />
         </div>
       </Panel>
 
@@ -429,6 +324,15 @@ export function TransactionsPage() {
             <EmptyBlock
               title="Nenhum lançamento encontrado"
               description="Ajuste os filtros ou importe um OFX para começar a revisar os movimentos da conta."
+              action={
+                <button
+                  type="button"
+                  onClick={() => navigateToPage("importar")}
+                  className="h-10 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
+                >
+                  Importar arquivo
+                </button>
+              }
             />
           )}
         {!isLoading &&
@@ -524,123 +428,6 @@ function EditableTransactionsTable({
   );
 }
 
-function AiSuggestionsPanel({
-  suggestions,
-  rows,
-  selectedIds,
-  state,
-  message,
-  onToggle,
-  onApply,
-  onDismiss,
-}: {
-  suggestions: ApiAiTransactionSuggestion[];
-  rows: ApiTransaction[];
-  selectedIds: Set<string>;
-  state: "idle" | "loading" | "applying" | "error";
-  message: string | null;
-  onToggle: (transactionId: string) => void;
-  onApply: () => void;
-  onDismiss: () => void;
-}) {
-  const rowsById = new Map(rows.map((row) => [row.id, row]));
-
-  return (
-    <Panel
-      title="Sugestões da IA"
-      description="Nada é aplicado automaticamente. Confira descrição, categoria e confiança antes de salvar."
-      className="mb-6"
-      action={
-        suggestions.length > 0 ? (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="h-9 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent"
-            >
-              Fechar
-            </button>
-            <button
-              type="button"
-              onClick={onApply}
-              disabled={state === "applying"}
-              className="h-9 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-3 text-xs font-medium text-emerald-100 transition hover:bg-emerald-400/15 disabled:opacity-60"
-            >
-              {state === "applying" ? "Aplicando..." : "Aplicar selecionadas"}
-            </button>
-          </div>
-        ) : null
-      }
-    >
-      {message && (
-        <p
-          className={cn(
-            "mb-4 text-sm",
-            state === "error" ? "text-rose-200" : "text-muted-foreground",
-          )}
-        >
-          {message}
-        </p>
-      )}
-
-      {suggestions.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <div className="hidden grid-cols-[44px_minmax(180px,1fr)_minmax(160px,1fr)_150px_110px_minmax(180px,1fr)] gap-4 bg-secondary/70 px-4 py-3 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground xl:grid">
-            <span />
-            <span>Original</span>
-            <span>Nome sugerido</span>
-            <span>Categoria</span>
-            <span>Confiança</span>
-            <span>Motivo</span>
-          </div>
-          <div className="divide-y divide-border/80">
-            {suggestions.map((suggestion, index) => {
-              const transaction = suggestion.transactionId
-                ? rowsById.get(suggestion.transactionId)
-                : null;
-              const key = suggestion.transactionId ?? `${suggestion.category}-${index}`;
-
-              return (
-                <div
-                  key={key}
-                  className="grid gap-3 px-4 py-4 text-sm xl:grid-cols-[44px_minmax(180px,1fr)_minmax(160px,1fr)_150px_110px_minmax(180px,1fr)] xl:items-center xl:gap-4"
-                >
-                  <input
-                    type="checkbox"
-                    checked={Boolean(
-                      suggestion.transactionId &&
-                        selectedIds.has(suggestion.transactionId),
-                    )}
-                    disabled={!suggestion.transactionId}
-                    onChange={() => {
-                      if (suggestion.transactionId) {
-                        onToggle(suggestion.transactionId);
-                      }
-                    }}
-                    className="size-4 accent-emerald-300"
-                    aria-label="Selecionar sugestão"
-                  />
-                  <span className="text-muted-foreground">
-                    {transaction?.descriptionOriginal ?? "Lançamento não encontrado"}
-                  </span>
-                  <span className="font-medium text-foreground">
-                    {suggestion.descriptionClean}
-                  </span>
-                  <span className="text-muted-foreground">{suggestion.category}</span>
-                  <span className="font-medium text-foreground">
-                    {Math.round(suggestion.confidence * 100)}%
-                  </span>
-                  <span className="text-muted-foreground">{suggestion.explanation}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </Panel>
-  );
-}
-
 function EditableTransactionRow({
   row,
   categories,
@@ -673,6 +460,7 @@ function EditableTransactionRow({
       className={cn(
         "grid gap-3 px-4 py-4 text-sm 2xl:grid-cols-[86px_minmax(210px,1fr)_180px_120px_120px_150px_170px] 2xl:items-center 2xl:gap-4",
         isPending && "bg-amber-300/5",
+        isRecentlyImported(row) && "ring-1 ring-primary/20",
       )}
     >
       <span className="text-muted-foreground">{formatDate(row.date)}</span>
@@ -693,19 +481,30 @@ function EditableTransactionRow({
       </div>
       <select
         value={row.categoryId ?? ""}
-        onChange={(event) =>
-          void onUpdate(row.id, { categoryId: event.target.value || null })
-        }
+        onChange={(event) => {
+          const categoryId = event.target.value || null;
+          const category = categories.find((item) => item.id === categoryId);
+          void onUpdate(row.id, {
+            categoryId,
+            reviewStatus:
+              category?.name.toLowerCase() === "a revisar" || !categoryId
+                ? "needs_review"
+                : "reviewed",
+          });
+        }}
         className="h-10 rounded-lg border border-border bg-secondary/35 px-3 text-foreground outline-none transition focus:border-primary/50"
       >
-        <option value="">Sem categoria</option>
+        <option value="">A revisar</option>
         {categories.map((category) => (
           <option key={category.id} value={category.id}>
             {category.name}
           </option>
         ))}
       </select>
-      <span className="text-muted-foreground">{sourceLabels[row.source]}</span>
+      <div className="flex flex-wrap gap-2">
+        <StatusPill tone={sourceTone[row.source]}>{sourceLabels[row.source]}</StatusPill>
+        {isRecentlyImported(row) && <StatusPill tone="neutral">recente</StatusPill>}
+      </div>
       <select
         value={row.paymentMethod}
         onChange={(event) =>
@@ -1078,6 +877,29 @@ const sourceLabels: Record<ApiTransaction["source"], string> = {
   ofx: "OFX",
   pdf_invoice: "PDF fatura",
 };
+
+const sourceTone: Record<ApiTransaction["source"], "neutral" | "positive" | "invoiceOpen"> = {
+  manual: "neutral",
+  ofx: "positive",
+  pdf_invoice: "invoiceOpen",
+};
+
+function navigateToPage(page: "inicio" | "importar" | "lancamentos" | "fatura-caixa" | "configuracoes") {
+  window.dispatchEvent(new CustomEvent("financas:navigate", { detail: { page } }));
+}
+
+function isRecentlyImported(transaction: ApiTransaction) {
+  if (!transaction.importBatchId || transaction.source === "manual") {
+    return false;
+  }
+
+  const createdAt = new Date(transaction.createdAt).getTime();
+  if (Number.isNaN(createdAt)) {
+    return false;
+  }
+
+  return Date.now() - createdAt < 24 * 60 * 60 * 1000;
+}
 
 function suggestRulePattern(description: string) {
   const ignoredWords = new Set(["COMPRA", "CRED", "PIX", "ENVIO", "PAGAMENTO", "DEBITO"]);

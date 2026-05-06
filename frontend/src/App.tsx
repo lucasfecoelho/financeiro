@@ -49,6 +49,20 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    function handleNavigate(event: Event) {
+      const detail = (event as CustomEvent<{ page?: PageId }>).detail;
+      const page = detail?.page;
+
+      if (page && page in pages) {
+        setActivePage(page);
+      }
+    }
+
+    window.addEventListener("financas:navigate", handleNavigate);
+    return () => window.removeEventListener("financas:navigate", handleNavigate);
+  }, []);
+
   const ActivePage = pages[activePage];
 
   return (

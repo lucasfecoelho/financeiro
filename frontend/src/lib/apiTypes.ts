@@ -157,13 +157,15 @@ export type ApiOfxPreviewTransaction = {
   date: string;
   trnType: string;
   amount: number;
-  fitId: string;
+  fitId: string | null;
+  externalId: string;
   memo: string;
   direction: "income" | "expense" | "neutral";
   paymentMethod: "credit" | "debit" | "account" | "adjustment";
   reviewStatus: "reviewed" | "needs_review";
   categoryId: string | null;
   categoryName: string;
+  descriptionClean: string | null;
   possibleDuplicate: boolean;
 };
 
@@ -184,6 +186,7 @@ export type ApiOfxConfirmResult = {
   importedRows: number;
   duplicatedRows: number;
   needsReviewRows: number;
+  reviewedRows?: number;
 };
 
 export type ApiPdfInvoicePreviewTransaction = {
@@ -222,6 +225,8 @@ export type ApiPdfInvoiceConfirmResult = {
   totalRows: number;
   importedRows: number;
   duplicatedRows: number;
+  needsReviewRows: number;
+  reviewedRows: number;
   totalFromFile: number | null;
   totalCalculated: number;
   difference: number | null;

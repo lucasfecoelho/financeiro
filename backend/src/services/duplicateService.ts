@@ -1,16 +1,18 @@
 import { prisma } from "../lib/database.js";
-import { amountForLegacyComparison } from "./transactionAmount.js";
 
 type DuplicateInput = {
   bankCode: string | null;
   accountId: string | null;
-  fitId: string;
+  externalId: string | null;
+  fitId?: string | null;
   amount: number;
   date: Date;
 };
 
 export async function findOfxDuplicate(input: DuplicateInput) {
-  if (!input.bankCode || !input.accountId || !input.fitId) {
+  const externalId = input.externalId ?? input.fitId ?? null;
+
+  if (!input.bankCode || !input.accountId || !externalId) {
     return null;
   }
 
@@ -19,9 +21,7 @@ export async function findOfxDuplicate(input: DuplicateInput) {
       source: "ofx",
       bankCode: input.bankCode,
       accountId: input.accountId,
-      externalId: input.fitId,
-      amount: { in: amountForLegacyComparison(input.amount) },
-      date: input.date,
+      externalId,
     },
     select: {
       id: true,

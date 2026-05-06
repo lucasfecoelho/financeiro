@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, CreditCard, FileClock, FolderUp, UploadCloud } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/Panel";
@@ -17,12 +17,20 @@ import type {
 } from "@/lib/apiTypes";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { PageId } from "@/types";
 
 type ImportMode = "ofx" | "pdf";
 
+function getInitialImportMode(): ImportMode {
+  const requestedMode = window.sessionStorage.getItem("financas:import-mode");
+  window.sessionStorage.removeItem("financas:import-mode");
+  return requestedMode === "pdf" ? "pdf" : "ofx";
+}
+
 export function ImportPage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [mode, setMode] = useState<ImportMode>("ofx");
+  const resultRef = useRef<HTMLDivElement | null>(null);
+  const [mode, setMode] = useState<ImportMode>(getInitialImportMode);
   const [ofxPreview, setOfxPreview] = useState<ApiOfxPreview | null>(null);
   const [pdfPreview, setPdfPreview] = useState<ApiPdfInvoicePreview | null>(null);
   const [result, setResult] = useState<
@@ -34,6 +42,12 @@ export function ImportPage() {
   const { data: categories } = useApiQuery(api.categories);
 
   const currentPreview = mode === "ofx" ? ofxPreview : pdfPreview;
+
+  useEffect(() => {
+    if (result) {
+      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [result]);
 
   async function handleFile(file: File | null) {
     if (!file) {
@@ -89,6 +103,16 @@ export function ImportPage() {
       );
     } finally {
       setIsConfirming(false);
+    }
+  }
+
+  function resetCurrentImport() {
+    setError(null);
+    setResult(null);
+    setOfxPreview(null);
+    setPdfPreview(null);
+    if (inputRef.current) {
+      inputRef.current.value = "";
     }
   }
 
@@ -184,10 +208,23 @@ export function ImportPage() {
         </Panel>
       )}
 
+      {currentPreview && result && (
+        <div ref={resultRef}>
+          <ImportResultPanel
+            result={result}
+            mode={mode}
+            onNavigate={navigateToPage}
+            onReset={resetCurrentImport}
+          />
+        </div>
+      )}
+
       {ofxPreview && mode === "ofx" && (
         <OfxPreviewPanel
+          categories={categories ?? []}
           preview={ofxPreview}
           isConfirming={isConfirming}
+          isConfirmed={Boolean(result)}
           onChange={setOfxPreview}
           onConfirm={() => void confirmImport()}
         />
@@ -198,25 +235,93 @@ export function ImportPage() {
           categories={categories ?? []}
           preview={pdfPreview}
           isConfirming={isConfirming}
+          isConfirmed={Boolean(result)}
           onChange={setPdfPreview}
           onConfirm={() => void confirmImport()}
         />
       )}
 
-      {currentPreview && result && (
-        <Panel title="Resumo da importação" className="mt-6">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard label="Total lido" value={result.totalRows} />
-            <SummaryCard label="Importados" value={result.importedRows} />
-            <SummaryCard label="Duplicados ignorados" value={result.duplicatedRows} />
-            <SummaryCard
-              label="A revisar"
-              value={"needsReviewRows" in result ? result.needsReviewRows : 0}
-            />
-          </div>
-        </Panel>
-      )}
     </div>
+  );
+}
+
+function navigateToPage(page: PageId) {
+  window.dispatchEvent(new CustomEvent("financas:navigate", { detail: { page } }));
+}
+
+function ImportResultPanel({
+  result,
+  mode,
+  onNavigate,
+  onReset,
+}: {
+  result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult;
+  mode: ImportMode;
+  onNavigate: (page: PageId) => void;
+  onReset: () => void;
+}) {
+  const needsReviewRows = "needsReviewRows" in result ? result.needsReviewRows : 0;
+  const allRowsAreDuplicates =
+    result.totalRows > 0 &&
+    result.importedRows === 0 &&
+    result.duplicatedRows === result.totalRows;
+  const nothingImported =
+    result.totalRows > 0 && result.importedRows === 0 && !allRowsAreDuplicates;
+  const title = allRowsAreDuplicates
+    ? "Todos os lançamentos parecem já ter sido importados."
+    : nothingImported
+      ? "Nenhum lançamento novo foi importado."
+      : "Importação concluída";
+  const description = allRowsAreDuplicates
+    ? "O arquivo foi conferido, mas todas as linhas bateram com lançamentos existentes. Para revisar, abra Lançamentos ou importe outro arquivo."
+    : nothingImported
+      ? "A confirmação chegou ao backend, mas nenhuma linha selecionada virou lançamento novo. Confira duplicados, seleção das linhas e tente novamente se necessário."
+      : mode === "ofx"
+        ? "Os lançamentos OFX aprovados foram salvos no SQLite e já podem aparecer em Lançamentos e no Dashboard do mês."
+        : "A fatura e os lançamentos aprovados foram salvos no SQLite e já podem aparecer em Fatura Caixa, Lançamentos e no Dashboard.";
+
+  return (
+    <Panel title={title} description={description} className="mt-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard label="Total lido" value={result.totalRows} />
+        <SummaryCard label="Importados" value={result.importedRows} />
+        <SummaryCard label="Duplicados ignorados" value={result.duplicatedRows} />
+        <SummaryCard label="A revisar" value={needsReviewRows} />
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => onNavigate("lancamentos")}
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
+        >
+          Ver lançamentos importados
+        </button>
+        <button
+          type="button"
+          onClick={() => onNavigate("inicio")}
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-accent"
+        >
+          Ir para dashboard
+        </button>
+        <button
+          type="button"
+          onClick={onReset}
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition hover:bg-accent"
+        >
+          Importar outro arquivo
+        </button>
+        {mode === "pdf" && "invoiceId" in result && (
+          <button
+            type="button"
+            onClick={() => onNavigate("fatura-caixa")}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition hover:bg-accent"
+          >
+            Ver fatura criada
+          </button>
+        )}
+      </div>
+    </Panel>
   );
 }
 
@@ -258,16 +363,35 @@ function ImportCard({
 
 function OfxPreviewPanel({
   preview,
+  categories,
   isConfirming,
+  isConfirmed,
   onChange,
   onConfirm,
 }: {
   preview: ApiOfxPreview;
+  categories: ApiCategory[];
   isConfirming: boolean;
+  isConfirmed: boolean;
   onChange: (preview: ApiOfxPreview) => void;
   onConfirm: () => void;
 }) {
   const selectedCount = preview.transactions.filter((row) => row.import).length;
+  const reviewCategory = categories.find(
+    (category) => category.name.toLowerCase() === "a revisar",
+  );
+
+  function updateRow(
+    previewId: string,
+    updater: (row: ApiOfxPreviewTransaction) => ApiOfxPreviewTransaction,
+  ) {
+    onChange({
+      ...preview,
+      transactions: preview.transactions.map((row) =>
+        row.previewId === previewId ? updater(row) : row,
+      ),
+    });
+  }
 
   return (
     <Panel
@@ -276,8 +400,9 @@ function OfxPreviewPanel({
       className="mt-6"
       action={
         <ConfirmButton
-          disabled={isConfirming || selectedCount === 0}
+          disabled={isConfirming || isConfirmed || preview.transactions.length === 0}
           isConfirming={isConfirming}
+          isConfirmed={isConfirmed}
           onConfirm={onConfirm}
         />
       }
@@ -291,15 +416,42 @@ function OfxPreviewPanel({
       </div>
       <OfxPreviewTable
         rows={preview.transactions}
+        categories={categories}
         onToggle={(previewId) =>
-          onChange({
-            ...preview,
-            transactions: preview.transactions.map((row) =>
-              row.previewId === previewId ? { ...row, import: !row.import } : row,
-            ),
+          updateRow(previewId, (row) => ({ ...row, import: !row.import }))
+        }
+        onDescriptionChange={(previewId, descriptionClean) =>
+          updateRow(previewId, (row) => ({ ...row, descriptionClean }))
+        }
+        onCategoryChange={(previewId, categoryId) =>
+          updateRow(previewId, (row) => {
+            const category = categories.find((item) => item.id === categoryId);
+            const isReviewCategory = !categoryId || category?.id === reviewCategory?.id;
+
+            return {
+              ...row,
+              categoryId: categoryId || null,
+              categoryName: category?.name ?? "A revisar",
+              reviewStatus: isReviewCategory ? "needs_review" : "reviewed",
+            };
           })
         }
+        onDirectionChange={(previewId, direction) =>
+          updateRow(previewId, (row) => ({ ...row, direction }))
+        }
+        onPaymentMethodChange={(previewId, paymentMethod) =>
+          updateRow(previewId, (row) => ({ ...row, paymentMethod }))
+        }
       />
+      <p className="mt-4 text-sm text-muted-foreground">
+        {selectedCount} selecionados para importar. Duplicados permanecem visiveis
+        para conferencia e sao ignorados na confirmacao.
+      </p>
+      {isConfirming && (
+        <p className="mt-3 rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground">
+          Enviando confirmação ao backend e gravando no SQLite...
+        </p>
+      )}
     </Panel>
   );
 }
@@ -308,12 +460,14 @@ function PdfPreviewPanel({
   preview,
   categories,
   isConfirming,
+  isConfirmed,
   onChange,
   onConfirm,
 }: {
   preview: ApiPdfInvoicePreview;
   categories: ApiCategory[];
   isConfirming: boolean;
+  isConfirmed: boolean;
   onChange: (preview: ApiPdfInvoicePreview) => void;
   onConfirm: () => void;
 }) {
@@ -323,6 +477,9 @@ function PdfPreviewPanel({
     ...preview.fees,
   ];
   const selectedCount = allRows.filter((row) => row.import).length;
+  const reviewCategory = categories.find(
+    (category) => category.name.toLowerCase() === "a revisar",
+  );
 
   function updateRow(
     section: "nationalTransactions" | "internationalTransactions" | "fees",
@@ -344,8 +501,9 @@ function PdfPreviewPanel({
       className="mt-6"
       action={
         <ConfirmButton
-          disabled={isConfirming || selectedCount === 0}
+          disabled={isConfirming || isConfirmed || allRows.length === 0}
           isConfirming={isConfirming}
+          isConfirmed={isConfirmed}
           onConfirm={onConfirm}
         />
       }
@@ -389,10 +547,12 @@ function PdfPreviewPanel({
         onCategoryChange={(previewId, categoryId) =>
           updateRow("nationalTransactions", previewId, (row) => {
             const category = categories.find((item) => item.id === categoryId);
+            const isReviewCategory = !categoryId || category?.id === reviewCategory?.id;
             return {
               ...row,
               categoryId: categoryId || null,
               categoryName: category?.name ?? "A revisar",
+              reviewStatus: isReviewCategory ? "needs_review" : "reviewed",
             };
           })
         }
@@ -410,10 +570,12 @@ function PdfPreviewPanel({
         onCategoryChange={(previewId, categoryId) =>
           updateRow("internationalTransactions", previewId, (row) => {
             const category = categories.find((item) => item.id === categoryId);
+            const isReviewCategory = !categoryId || category?.id === reviewCategory?.id;
             return {
               ...row,
               categoryId: categoryId || null,
               categoryName: category?.name ?? "A revisar",
+              reviewStatus: isReviewCategory ? "needs_review" : "reviewed",
             };
           })
         }
@@ -431,33 +593,61 @@ function PdfPreviewPanel({
         onCategoryChange={(previewId, categoryId) =>
           updateRow("fees", previewId, (row) => {
             const category = categories.find((item) => item.id === categoryId);
+            const isReviewCategory = !categoryId || category?.id === reviewCategory?.id;
             return {
               ...row,
               categoryId: categoryId || null,
               categoryName: category?.name ?? "A revisar",
+              reviewStatus: isReviewCategory ? "needs_review" : "reviewed",
             };
           })
         }
       />
+      <p className="mt-4 text-sm text-muted-foreground">
+        {selectedCount} selecionados para importar. Duplicados permanecem visíveis
+        para conferência e são ignorados na confirmação.
+      </p>
+      {isConfirming && (
+        <p className="mt-3 rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground">
+          Enviando confirmação ao backend e gravando no SQLite...
+        </p>
+      )}
     </Panel>
   );
 }
 
 function OfxPreviewTable({
   rows,
+  categories,
   onToggle,
+  onDescriptionChange,
+  onCategoryChange,
+  onDirectionChange,
+  onPaymentMethodChange,
 }: {
   rows: ApiOfxPreviewTransaction[];
+  categories: ApiCategory[];
   onToggle: (previewId: string) => void;
+  onDescriptionChange: (previewId: string, descriptionClean: string) => void;
+  onCategoryChange: (previewId: string, categoryId: string) => void;
+  onDirectionChange: (
+    previewId: string,
+    direction: ApiOfxPreviewTransaction["direction"],
+  ) => void;
+  onPaymentMethodChange: (
+    previewId: string,
+    paymentMethod: ApiOfxPreviewTransaction["paymentMethod"],
+  ) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <div className="hidden grid-cols-[84px_92px_minmax(240px,1fr)_120px_100px_150px_130px] gap-4 bg-secondary/70 px-4 py-3 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground xl:grid">
+      <div className="hidden grid-cols-[72px_92px_minmax(220px,1fr)_120px_130px_130px_160px_120px] gap-4 bg-secondary/70 px-4 py-3 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground xl:grid">
         <span>Importar</span>
         <span>Data</span>
         <span>Descrição</span>
         <span className="text-right">Valor</span>
-        <span>Tipo</span>
+        <span>Direcao</span>
+        <span>Pagamento</span>
         <span>Categoria</span>
         <span>Duplicado</span>
       </div>
@@ -465,16 +655,70 @@ function OfxPreviewTable({
         {rows.map((row) => (
           <div
             key={row.previewId}
-            className="grid gap-3 px-4 py-4 text-sm xl:grid-cols-[84px_92px_minmax(240px,1fr)_120px_100px_150px_130px] xl:items-center xl:gap-4"
+            className={cn(
+              "grid gap-3 px-4 py-4 text-sm xl:grid-cols-[72px_92px_minmax(220px,1fr)_120px_130px_130px_160px_120px] xl:items-center xl:gap-4",
+              row.possibleDuplicate && "bg-amber-300/5",
+            )}
           >
             <Checkbox checked={row.import} onChange={() => onToggle(row.previewId)} />
             <span className="text-muted-foreground">{formatDate(row.date)}</span>
-            <span className="font-medium text-foreground">{row.memo}</span>
+            <div>
+              <input
+                value={row.descriptionClean ?? ""}
+                onChange={(event) =>
+                  onDescriptionChange(row.previewId, event.target.value)
+                }
+                className="h-10 w-full rounded-lg border border-border bg-secondary/35 px-3 text-foreground outline-none transition focus:border-primary/50"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Original: {row.memo}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                ID: {row.fitId ?? row.externalId}
+              </p>
+            </div>
             <Amount
               value={row.direction === "expense" ? -Math.abs(row.amount) : Math.abs(row.amount)}
             />
-            <span className="text-muted-foreground">{row.trnType}</span>
-            <span className="text-muted-foreground">{row.categoryName}</span>
+            <select
+              value={row.direction}
+              onChange={(event) =>
+                onDirectionChange(
+                  row.previewId,
+                  event.target.value as ApiOfxPreviewTransaction["direction"],
+                )
+              }
+              className="h-10 rounded-lg border border-border bg-secondary/35 px-3 text-foreground outline-none transition focus:border-primary/50"
+            >
+              <option value="expense">Despesa</option>
+              <option value="income">Receita</option>
+              <option value="neutral">Neutro</option>
+            </select>
+            <select
+              value={row.paymentMethod}
+              onChange={(event) =>
+                onPaymentMethodChange(
+                  row.previewId,
+                  event.target.value as ApiOfxPreviewTransaction["paymentMethod"],
+                )
+              }
+              className="h-10 rounded-lg border border-border bg-secondary/35 px-3 text-foreground outline-none transition focus:border-primary/50"
+            >
+              <option value="account">Conta</option>
+              <option value="debit">Debito</option>
+              <option value="credit">Credito</option>
+              <option value="adjustment">Ajuste</option>
+            </select>
+            <select
+              value={row.categoryId ?? ""}
+              onChange={(event) => onCategoryChange(row.previewId, event.target.value)}
+              className="h-10 rounded-lg border border-border bg-secondary/35 px-3 text-foreground outline-none transition focus:border-primary/50"
+            >
+              <option value="">A revisar</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
             <DuplicatePill duplicate={row.possibleDuplicate} />
           </div>
         ))}
@@ -593,10 +837,12 @@ function DuplicatePill({ duplicate }: { duplicate: boolean }) {
 function ConfirmButton({
   disabled,
   isConfirming,
+  isConfirmed,
   onConfirm,
 }: {
   disabled: boolean;
   isConfirming: boolean;
+  isConfirmed: boolean;
   onConfirm: () => void;
 }) {
   return (
@@ -607,7 +853,11 @@ function ConfirmButton({
       className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
     >
       <CheckCircle2 className="size-4" aria-hidden="true" />
-      {isConfirming ? "Importando..." : "Confirmar importação"}
+      {isConfirming
+        ? "Importando..."
+        : isConfirmed
+          ? "Importação concluída"
+          : "Confirmar importação"}
     </button>
   );
 }

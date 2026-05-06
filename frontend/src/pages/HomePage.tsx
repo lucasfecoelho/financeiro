@@ -14,7 +14,6 @@ import {
   CreditCard,
   Landmark,
   Scale,
-  Sparkles,
   ShoppingBag,
   Wallet,
 } from "lucide-react";
@@ -26,7 +25,7 @@ import { StatusPill } from "@/components/StatusPill";
 import { TransactionList } from "@/components/TransactionList";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api";
-import type { ApiAiMonthlySummary, ApiDashboard } from "@/lib/apiTypes";
+import type { ApiDashboard, ApiInvoice } from "@/lib/apiTypes";
 import { formatCurrency } from "@/lib/format";
 import { mapApiTransaction } from "@/lib/mappers";
 import type { Metric } from "@/types";
@@ -45,12 +44,7 @@ export function HomePage() {
     isLoading,
     refetch,
   } = useApiQuery(() => api.dashboard({ month, year }), [dashboardKey]);
-  const { data: aiStatus } = useApiQuery(api.aiStatus);
-  const [aiSummary, setAiSummary] = useState<ApiAiMonthlySummary | null>(null);
-  const [aiSummaryState, setAiSummaryState] = useState<
-    "idle" | "loading" | "ready" | "error"
-  >("idle");
-  const [aiSummaryMessage, setAiSummaryMessage] = useState<string | null>(null);
+  const { data: invoices } = useApiQuery(api.invoices);
   const hasData = Boolean(
     dashboard &&
       (dashboard.totalIncome > 0 ||
@@ -61,33 +55,10 @@ export function HomePage() {
     () => (dashboard ? buildMetrics(dashboard) : []),
     [dashboard],
   );
-
-  async function generateAiSummary() {
-    if (!dashboard) {
-      return;
-    }
-
-    setAiSummaryState("loading");
-    setAiSummaryMessage(null);
-
-    try {
-      const summary = await api.monthlySummaryWithAi({
-        month,
-        year,
-        dashboard,
-      });
-      setAiSummary(summary);
-      setAiSummaryState("ready");
-    } catch (caughtError) {
-      setAiSummary(null);
-      setAiSummaryState("error");
-      setAiSummaryMessage(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Não foi possível gerar o resumo inteligente.",
-      );
-    }
-  }
+  const currentInvoice = useMemo(
+    () => pickCurrentInvoice(invoices ?? [], Number(month), Number(year)),
+    [invoices, month, year],
+  );
 
   return (
     <div>
@@ -98,9 +69,23 @@ export function HomePage() {
           description="Receitas, despesas, saldo estimado e revisão calculados a partir dos lançamentos salvos no SQLite."
         />
 
-        <div className="grid grid-cols-2 gap-3 sm:w-80">
+        <div className="grid gap-3 sm:w-[420px] sm:grid-cols-2">
           <FilterField label="Mês" value={month} onChange={setMonth} options={monthOptions} />
           <FilterField label="Ano" value={year} onChange={setYear} options={yearOptions} />
+          <button
+            type="button"
+            onClick={() => navigateToPage("lancamentos")}
+            className="h-10 rounded-lg border border-amber-300/20 bg-amber-300/10 px-4 text-sm font-medium text-amber-100 transition hover:bg-amber-300/15"
+          >
+            Revisar pendências
+          </button>
+          <button
+            type="button"
+            onClick={() => navigateToPage("importar")}
+            className="h-10 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-accent"
+          >
+            Importar arquivo
+          </button>
         </div>
       </div>
 
@@ -121,6 +106,15 @@ export function HomePage() {
           <EmptyBlock
             title="Nenhum dado para este mês"
             description="Importe um OFX ou ajuste o mês e ano para ver o resumo real dos lançamentos."
+            action={
+              <button
+                type="button"
+                onClick={() => navigateToPage("importar")}
+                className="h-10 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
+              >
+                Importar arquivo
+              </button>
+            }
           />
         </Panel>
       )}
@@ -133,47 +127,49 @@ export function HomePage() {
             ))}
           </div>
 
-          <Panel
-            title="Resumo inteligente do mês"
-            description={
-              aiStatus?.enabled
-                ? "Um resumo opcional gerado com base nos números agregados da tela."
-                : (aiStatus?.message ?? "IA assistiva opcional.")
-            }
-            className="mt-6"
-            action={
-              <button
-                type="button"
-                onClick={() => void generateAiSummary()}
-                disabled={!aiStatus?.enabled || aiSummaryState === "loading"}
-                className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Sparkles className="size-3.5" aria-hidden="true" />
-                {aiSummaryState === "loading" ? "Gerando..." : "Gerar resumo"}
-              </button>
-            }
-          >
-            {aiSummary ? (
-              <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
-                <div className="rounded-lg border border-border bg-secondary/35 p-4">
-                  <p className="text-sm leading-6 text-foreground">{aiSummary.summary}</p>
+          <Panel title="Fatura atual" className="mt-6">
+            {currentInvoice ? (
+              <div className="grid gap-4 md:grid-cols-[1fr_0.8fr] md:items-center">
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {currentInvoice.cardName} final {currentInvoice.cardLastDigits || "-"} ·{" "}
+                    {currentInvoice.referenceMonth}/{currentInvoice.referenceYear}
+                  </p>
+                  <p className="mt-3 text-3xl font-semibold">
+                    {formatCurrency(currentInvoice.totalCalculated ?? 0)}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <StatusPill
+                      tone={currentInvoice.status === "paid" ? "invoicePaid" : "invoiceOpen"}
+                    >
+                      {invoiceStatusLabels[currentInvoice.status]}
+                    </StatusPill>
+                    <StatusPill tone="neutral">
+                      vencimento dia {currentInvoice.dueDay}
+                    </StatusPill>
+                  </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                  <SummaryList title="Principais gastos" items={aiSummary.topExpenses} />
-                  <SummaryList title="Alertas simples" items={aiSummary.alerts} />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => navigateToPage("fatura-caixa")}
+                  className="h-10 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-accent"
+                >
+                  Ver fatura Caixa
+                </button>
               </div>
             ) : (
-              <p
-                className={
-                  aiSummaryState === "error"
-                    ? "text-sm text-rose-200"
-                    : "text-sm text-muted-foreground"
-                }
-              >
-                {aiSummaryMessage ??
-                  "A IA não é necessária para usar o app. Gere um resumo quando quiser uma leitura rápida do mês."}
-              </p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma fatura encontrada para este mês. Importe o PDF da Caixa para acompanhar total, vencimento e compras.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigateToImport("pdf")}
+                  className="h-10 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
+                >
+                  Importar PDF
+                </button>
+              </div>
             )}
           </Panel>
 
@@ -349,6 +345,27 @@ function buildMetrics(dashboard: ApiDashboard): Metric[] {
   ];
 }
 
+function navigateToPage(page: "inicio" | "importar" | "lancamentos" | "fatura-caixa" | "configuracoes") {
+  window.dispatchEvent(new CustomEvent("financas:navigate", { detail: { page } }));
+}
+
+function navigateToImport(mode: "ofx" | "pdf") {
+  window.sessionStorage.setItem("financas:import-mode", mode);
+  navigateToPage("importar");
+}
+
+function pickCurrentInvoice(invoices: ApiInvoice[], month: number, year: number) {
+  return (
+    invoices.find(
+      (invoice) =>
+        invoice.referenceMonth === month && invoice.referenceYear === year,
+    ) ??
+    invoices.find((invoice) => invoice.status !== "paid") ??
+    invoices[0] ??
+    null
+  );
+}
+
 function FilterField({
   label,
   value,
@@ -378,23 +395,6 @@ function FilterField({
   );
 }
 
-function SummaryList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="rounded-lg border border-border bg-secondary/25 p-4">
-      <h3 className="text-sm font-medium text-foreground">{title}</h3>
-      {items.length > 0 ? (
-        <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-          {items.map((item, index) => (
-            <li key={`${title}-${index}`}>{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-3 text-sm text-muted-foreground">Sem pontos relevantes.</p>
-      )}
-    </div>
-  );
-}
-
 const monthOptions = [
   { label: "Janeiro", value: "1" },
   { label: "Fevereiro", value: "2" },
@@ -416,3 +416,9 @@ const yearOptions = Array.from({ length: 5 }, (_item, index) => {
 });
 
 const fallbackColors = ["#86efac", "#67e8f9", "#facc15", "#fda4af", "#c4b5fd"];
+
+const invoiceStatusLabels: Record<ApiInvoice["status"], string> = {
+  open: "Fatura aberta",
+  closed: "Fatura fechada",
+  paid: "Fatura paga",
+};

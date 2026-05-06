@@ -127,6 +127,57 @@ URLs padrao:
 - Backend: <http://localhost:3333>
 - Health check: <http://localhost:3333/api/health>
 
+## Como testar a importacao OFX
+
+Existe uma fixture OFX Caixa ficticia e anonimizada em:
+
+```txt
+backend/fixtures/caixa-ofx-anonimizado.ofx
+```
+
+Roteiro manual:
+
+1. Rode `npm run dev`.
+2. Acesse <http://localhost:5173/importar>.
+3. Escolha o modo `OFX da conta Caixa`.
+4. Selecione `backend/fixtures/caixa-ofx-anonimizado.ofx`.
+5. Na previa, confira banco `104`, conta, periodo e os 4 lancamentos.
+6. Edite pelo menos uma descricao limpa e uma categoria, mantendo outros itens em `A revisar` se desejar.
+7. Confirme a importacao.
+8. O resumo deve mostrar total lido, importados, duplicados ignorados e itens a revisar.
+9. Acesse `Lancamentos` e filtre maio de 2026 para ver os lancamentos OFX salvos no SQLite.
+10. Acesse `Inicio`, selecione maio de 2026 e confira receitas/despesas refletidas no dashboard.
+11. Importe o mesmo OFX novamente: a previa deve marcar os itens como possiveis duplicados e a confirmacao nao deve criar lancamentos repetidos.
+
+A fixture nao contem dados reais sensiveis. Ela cobre `FITID` presente e ausente; quando o `FITID` nao vem no arquivo, o backend gera um `externalId` estavel a partir de banco, conta, data, valor e memo.
+
+Para diagnostico controlado do fluxo de importacao, rode o backend com:
+
+```powershell
+$env:IMPORT_DEBUG="true"
+npm run dev:backend
+```
+
+Com essa variavel ativa, o backend imprime etapas discretas de preview e confirmacao: arquivo recebido, linhas lidas, selecionadas, duplicadas, importadas e pendentes de revisao. Sem `IMPORT_DEBUG=true`, esses logs nao aparecem.
+
+## Como testar a importacao PDF da fatura
+
+Use um PDF de fatura Caixa com texto selecionavel, sem compartilhar ou versionar dados reais sensiveis.
+
+Roteiro manual:
+
+1. Rode `npm run dev`.
+2. Acesse <http://localhost:5173/importar>.
+3. Escolha o modo `PDF da fatura Caixa`.
+4. Selecione o PDF local.
+5. Na previa, confira total do PDF, total calculado, diferenca, categorias e duplicados.
+6. Edite categorias quando necessario e confirme a importacao.
+7. O resumo deve mostrar total lido, importados, duplicados ignorados e itens a revisar.
+8. Use `Ver fatura criada` ou acesse `Fatura Caixa` para conferir a fatura.
+9. Acesse `Lancamentos` para ver os lancamentos com origem `PDF fatura`.
+10. Acesse `Inicio` e selecione o mes da fatura para conferir o impacto no dashboard.
+11. Importe o mesmo PDF novamente: a previa deve marcar possiveis duplicados e a confirmacao nao deve criar lancamentos repetidos.
+
 ## Estado atual do MVP
 
 - Base visual: implementada

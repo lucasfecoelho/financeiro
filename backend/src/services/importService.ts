@@ -2,6 +2,7 @@ import { prisma } from "../lib/database.js";
 import type { ParsedOfxStatement, ParsedOfxTransaction } from "./ofxParser.js";
 import { findOfxDuplicate } from "./duplicateService.js";
 import { findMatchingRule } from "./categoryRuleService.js";
+import { logImportStep } from "./importDiagnostics.js";
 import { normalizeTransactionAmount } from "./transactionAmount.js";
 
 export type OfxPreviewTransaction = {
@@ -10,7 +11,8 @@ export type OfxPreviewTransaction = {
   date: string;
   trnType: string;
   amount: number;
-  fitId: string;
+  fitId: string | null;
+  externalId: string;
   memo: string;
   direction: "income" | "expense" | "neutral";
   paymentMethod: "credit" | "debit" | "account" | "adjustment";
@@ -59,6 +61,7 @@ export async function buildOfxPreview(
   const transactions = await Promise.all(
     statement.transactions.map(async (transaction, index) => {
       const classification = classifyOfxTransaction(transaction);
+      const normalizedAmount = normalizeTransactionAmount(transaction.amount);
       const ruleMatch = findMatchingRule(
         {
           descriptionOriginal: transaction.memo,
@@ -70,25 +73,28 @@ export async function buildOfxPreview(
       const duplicate = await findOfxDuplicate({
         bankCode: statement.bankCode,
         accountId: statement.accountId,
-        fitId: transaction.fitId,
-        amount: normalizeTransactionAmount(transaction.amount),
+        externalId: transaction.externalId,
+        amount: normalizedAmount,
         date: transaction.date,
       });
+      const descriptionClean =
+        ruleMatch?.descriptionClean ?? cleanDescription(transaction.memo);
 
       return {
-        previewId: `${transaction.fitId}-${index}`,
+        previewId: `${transaction.externalId}-${index}`,
         import: !duplicate,
         date: transaction.dateText,
         trnType: transaction.trnType,
-        amount: normalizeTransactionAmount(transaction.amount),
+        amount: normalizedAmount,
         fitId: transaction.fitId,
+        externalId: transaction.externalId,
         memo: transaction.memo,
         direction: classification.direction,
         paymentMethod: classification.paymentMethod,
         reviewStatus: ruleMatch ? ("reviewed" as const) : ("needs_review" as const),
         categoryId: ruleMatch?.categoryId ?? reviewCategory?.id ?? null,
         categoryName: ruleMatch?.category.name ?? reviewCategory?.name ?? "A revisar",
-        descriptionClean: ruleMatch?.descriptionClean ?? null,
+        descriptionClean,
         possibleDuplicate: Boolean(duplicate),
       };
     }),
@@ -107,9 +113,6 @@ export async function buildOfxPreview(
 }
 
 export async function confirmOfxImport(input: ConfirmOfxImportInput) {
-  const approvedTransactions = input.transactions.filter((transaction) => {
-    return transaction.import && !transaction.possibleDuplicate;
-  });
   const importBatch = await prisma.importBatch.create({
     data: {
       fileName: input.fileName,
@@ -124,17 +127,28 @@ export async function confirmOfxImport(input: ConfirmOfxImportInput) {
 
   let importedRows = 0;
   let needsReviewRows = 0;
-  let duplicatedRows = input.transactions.filter(
-    (transaction) => transaction.possibleDuplicate,
-  ).length;
+  let reviewedRows = 0;
+  let duplicatedRows = 0;
+  let skippedRows = 0;
 
-  for (const transaction of approvedTransactions) {
+  for (const transaction of input.transactions) {
+    if (!transaction.import) {
+      if (transaction.possibleDuplicate) {
+        duplicatedRows += 1;
+      } else {
+        skippedRows += 1;
+      }
+      continue;
+    }
+
     const date = parseDateOnly(transaction.date);
+    const amount = normalizeTransactionAmount(transaction.amount);
+    const externalId = getConfirmedExternalId(transaction);
     const duplicate = await findOfxDuplicate({
       bankCode: input.bankCode,
       accountId: input.accountId,
-      fitId: transaction.fitId,
-      amount: normalizeTransactionAmount(transaction.amount),
+      externalId,
+      amount,
       date,
     });
 
@@ -142,27 +156,32 @@ export async function confirmOfxImport(input: ConfirmOfxImportInput) {
       duplicatedRows += 1;
       continue;
     }
+    const reviewStatus = normalizeReviewStatus(transaction.reviewStatus);
 
     await prisma.transaction.create({
       data: {
         date,
         descriptionOriginal: transaction.memo,
-        descriptionClean: transaction.descriptionClean ?? cleanDescription(transaction.memo),
-        amount: normalizeTransactionAmount(transaction.amount),
-        direction: transaction.direction,
-        paymentMethod: transaction.paymentMethod,
+        descriptionClean:
+          cleanNullableText(transaction.descriptionClean) ??
+          cleanDescription(transaction.memo),
+        amount,
+        direction: normalizeDirection(transaction.direction),
+        paymentMethod: normalizePaymentMethod(transaction.paymentMethod),
         source: "ofx",
         categoryId: transaction.categoryId,
-        reviewStatus: transaction.reviewStatus,
-        externalId: transaction.fitId,
+        reviewStatus,
+        externalId,
         bankCode: input.bankCode,
         accountId: input.accountId,
         importBatchId: importBatch.id,
       },
     });
     importedRows += 1;
-    if (transaction.reviewStatus === "needs_review") {
+    if (reviewStatus === "needs_review") {
       needsReviewRows += 1;
+    } else {
+      reviewedRows += 1;
     }
   }
 
@@ -176,12 +195,23 @@ export async function confirmOfxImport(input: ConfirmOfxImportInput) {
     },
   });
 
+  logImportStep("ofx.confirm.persisted", {
+    importBatchId: updatedBatch.id,
+    totalRows: input.transactions.length,
+    importedRows,
+    duplicatedRows,
+    skippedRows,
+    needsReviewRows,
+    reviewedRows,
+  });
+
   return {
     importBatchId: updatedBatch.id,
     totalRows: input.transactions.length,
     importedRows,
     duplicatedRows,
     needsReviewRows,
+    reviewedRows,
   };
 }
 
@@ -201,11 +231,19 @@ function classifyOfxTransaction(transaction: ParsedOfxTransaction) {
     return { direction: "expense" as const, paymentMethod: "debit" as const };
   }
 
-  if (trnType === "CREDIT" || transaction.amount > 0) {
+  if (trnType === "CREDIT") {
     return { direction: "income" as const, paymentMethod: "account" as const };
   }
 
-  if (trnType === "DEBIT" || transaction.amount < 0) {
+  if (trnType === "DEBIT") {
+    return { direction: "expense" as const, paymentMethod: "account" as const };
+  }
+
+  if (transaction.amount > 0) {
+    return { direction: "income" as const, paymentMethod: "account" as const };
+  }
+
+  if (transaction.amount < 0) {
     return { direction: "expense" as const, paymentMethod: "account" as const };
   }
 
@@ -222,9 +260,68 @@ async function getReviewCategory() {
 
 function parseDateOnly(value: string) {
   const [year, month, day] = value.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day, 12));
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    throw new Error(`Data de importacao OFX invalida: ${value}`);
+  }
+
+  return date;
 }
 
 function cleanDescription(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function getConfirmedExternalId(transaction: OfxPreviewTransaction) {
+  const externalId = cleanNullableText(transaction.externalId);
+
+  if (externalId) {
+    return externalId;
+  }
+
+  const fitId = cleanNullableText(transaction.fitId);
+  if (fitId) {
+    return fitId;
+  }
+
+  throw new Error("Transacao OFX sem identificador externo.");
+}
+
+function cleanNullableText(value: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeDirection(value: OfxPreviewTransaction["direction"]) {
+  if (value === "income" || value === "expense" || value === "neutral") {
+    return value;
+  }
+
+  return "neutral";
+}
+
+function normalizePaymentMethod(value: OfxPreviewTransaction["paymentMethod"]) {
+  if (
+    value === "credit" ||
+    value === "debit" ||
+    value === "account" ||
+    value === "adjustment"
+  ) {
+    return value;
+  }
+
+  return "account";
+}
+
+function normalizeReviewStatus(value: OfxPreviewTransaction["reviewStatus"]) {
+  if (value === "reviewed" || value === "needs_review") {
+    return value;
+  }
+
+  return "needs_review";
 }

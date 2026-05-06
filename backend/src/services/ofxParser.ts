@@ -1,9 +1,12 @@
+import { createHash } from "node:crypto";
+
 export type ParsedOfxTransaction = {
   date: Date;
   dateText: string;
   trnType: string;
   amount: number;
-  fitId: string;
+  fitId: string | null;
+  externalId: string;
   memo: string;
 };
 
@@ -20,30 +23,43 @@ export function parseOfx(content: string): ParsedOfxStatement {
   const body = stripHeaders(content);
   const accountSection = getSection(body, "BANKACCTFROM") ?? body;
   const transactionSection = getSection(body, "BANKTRANLIST") ?? body;
+  const bankCode = cleanNullable(getTagValue(accountSection, "BANKID"));
+  const accountId = cleanNullable(getTagValue(accountSection, "ACCTID"));
 
   const transactions = getSections(transactionSection, "STMTTRN").map(
-    (transactionContent, index) => {
+    (transactionContent) => {
       const dateRaw = getTagValue(transactionContent, "DTPOSTED");
       const amountRaw = getTagValue(transactionContent, "TRNAMT");
-      const fitId = getTagValue(transactionContent, "FITID") ?? `ofx-row-${index + 1}`;
+      const fitId = cleanNullable(getTagValue(transactionContent, "FITID"));
       const memo = getTagValue(transactionContent, "MEMO") ?? "";
       const trnType = getTagValue(transactionContent, "TRNTYPE") ?? "OTHER";
       const date = parseOfxDate(dateRaw);
+      const amount = parseAmount(amountRaw);
+      const cleanMemo = cleanText(memo);
 
       return {
         date,
         dateText: toDateOnly(date),
         trnType: cleanText(trnType).toUpperCase(),
-        amount: parseAmount(amountRaw),
-        fitId: cleanText(fitId),
-        memo: cleanText(memo),
+        amount,
+        fitId,
+        externalId:
+          fitId ??
+          buildDerivedExternalId({
+            bankCode,
+            accountId,
+            dateText: toDateOnly(date),
+            amount,
+            memo: cleanMemo,
+          }),
+        memo: cleanMemo,
       };
     },
   );
 
   return {
-    bankCode: cleanNullable(getTagValue(accountSection, "BANKID")),
-    accountId: cleanNullable(getTagValue(accountSection, "ACCTID")),
+    bankCode,
+    accountId,
     accountType: cleanNullable(getTagValue(accountSection, "ACCTTYPE")),
     periodStart: toDateOnlyOrNull(getTagValue(transactionSection, "DTSTART")),
     periodEnd: toDateOnlyOrNull(getTagValue(transactionSection, "DTEND")),
@@ -84,7 +100,17 @@ function parseOfxDate(value: string | null) {
   }
 
   const [, year, month, day] = match;
-  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
+  const parsedDate = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
+
+  if (
+    parsedDate.getUTCFullYear() !== Number(year) ||
+    parsedDate.getUTCMonth() !== Number(month) - 1 ||
+    parsedDate.getUTCDate() !== Number(day)
+  ) {
+    throw new Error(`Data OFX invalida: ${value}`);
+  }
+
+  return parsedDate;
 }
 
 function parseAmount(value: string | null) {
@@ -92,7 +118,15 @@ function parseAmount(value: string | null) {
     throw new Error("Transacao OFX sem valor.");
   }
 
-  const normalized = value.replace(",", ".").trim();
+  const trimmed = value.trim().replace(/\s/g, "");
+  const lastComma = trimmed.lastIndexOf(",");
+  const lastDot = trimmed.lastIndexOf(".");
+  const normalized =
+    lastComma >= 0 && lastDot >= 0
+      ? lastComma > lastDot
+        ? trimmed.replace(/\./g, "").replace(",", ".")
+        : trimmed.replace(/,/g, "")
+      : trimmed.replace(",", ".");
   const amount = Number(normalized);
 
   if (!Number.isFinite(amount)) {
@@ -121,4 +155,33 @@ function cleanText(value: string) {
     .replace(/&gt;/gi, ">")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function buildDerivedExternalId({
+  bankCode,
+  accountId,
+  dateText,
+  amount,
+  memo,
+}: {
+  bankCode: string | null;
+  accountId: string | null;
+  dateText: string;
+  amount: number;
+  memo: string;
+}) {
+  const stableParts = [
+    bankCode ?? "",
+    accountId ?? "",
+    dateText,
+    formatAmountForIdentity(amount),
+    memo.toUpperCase(),
+  ];
+  const digest = createHash("sha256").update(stableParts.join("|")).digest("hex");
+
+  return `ofx-derived-${digest.slice(0, 32)}`;
+}
+
+function formatAmountForIdentity(amount: number) {
+  return amount.toFixed(2);
 }

@@ -23,11 +23,21 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
     body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...options,
-    headers,
-    body,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      ...options,
+      headers,
+      body,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message
+        ? `Nao foi possivel conectar ao backend: ${error.message}`
+        : "Nao foi possivel conectar ao backend.";
+    throw new ApiError(message, 0);
+  }
 
   if (!response.ok) {
     const message = await readErrorMessage(response);

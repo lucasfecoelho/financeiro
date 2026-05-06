@@ -13,6 +13,7 @@ import {
   type PdfInvoicePreview,
 } from "../services/pdfInvoiceImportService.js";
 import { parsePdfInvoice } from "../services/pdfInvoiceParser.js";
+import { logImportStep } from "../services/importDiagnostics.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -43,10 +44,20 @@ importRouter.post(
       return;
     }
 
+    logImportStep("ofx.preview.start", {
+      fileName: request.file.originalname,
+      size: request.file.size,
+    });
+
     const content = request.file.buffer.toString("utf8");
     const statement = parseOfx(content);
     const preview = await buildOfxPreview(request.file.originalname, statement);
-
+    logImportStep("ofx.preview.ready", {
+      fileName: request.file.originalname,
+      totalRows: preview.totalRows,
+      duplicates: preview.transactions.filter((transaction) => transaction.possibleDuplicate)
+        .length,
+    });
     response.json(preview);
   }),
 );
@@ -57,6 +68,10 @@ importRouter.post(
     const input = request.body as ConfirmOfxImportInput;
 
     if (!input.fileName || !Array.isArray(input.transactions)) {
+      logImportStep("ofx.confirm.invalid_payload", {
+        hasFileName: Boolean(input.fileName),
+        hasTransactions: Array.isArray(input.transactions),
+      });
       response.status(400).json({
         error: "INVALID_IMPORT_PAYLOAD",
         message: "Payload de confirmacao OFX invalido.",
@@ -64,7 +79,16 @@ importRouter.post(
       return;
     }
 
+    logImportStep("ofx.confirm.received", {
+      fileName: input.fileName,
+      totalRows: input.transactions.length,
+      selectedRows: input.transactions.filter((transaction) => transaction.import).length,
+      possibleDuplicates: input.transactions.filter(
+        (transaction) => transaction.possibleDuplicate,
+      ).length,
+    });
     const result = await confirmOfxImport(input);
+    logImportStep("ofx.confirm.result", result);
     response.json(result);
   }),
 );
@@ -89,12 +113,29 @@ importRouter.post(
       return;
     }
 
+    logImportStep("pdf.preview.start", {
+      fileName: request.file.originalname,
+      size: request.file.size,
+    });
+
     const parsedInvoice = await parsePdfInvoice(request.file.buffer);
     const preview = await buildPdfInvoicePreview(
       request.file.originalname,
       parsedInvoice,
     );
 
+    logImportStep("pdf.preview.ready", {
+      fileName: request.file.originalname,
+      totalRows:
+        preview.nationalTransactions.length +
+        preview.internationalTransactions.length +
+        preview.fees.length,
+      duplicates: [
+        ...preview.nationalTransactions,
+        ...preview.internationalTransactions,
+        ...preview.fees,
+      ].filter((transaction) => transaction.possibleDuplicate).length,
+    });
     response.json(preview);
   }),
 );
@@ -105,6 +146,10 @@ importRouter.post(
     const input = request.body as PdfInvoicePreview;
 
     if (!input.fileName || !Array.isArray(input.nationalTransactions)) {
+      logImportStep("pdf.confirm.invalid_payload", {
+        hasFileName: Boolean(input.fileName),
+        hasNationalTransactions: Array.isArray(input.nationalTransactions),
+      });
       response.status(400).json({
         error: "INVALID_IMPORT_PAYLOAD",
         message: "Payload de confirmacao da fatura invalido.",
@@ -112,7 +157,20 @@ importRouter.post(
       return;
     }
 
+    const allRows = [
+      ...input.nationalTransactions,
+      ...input.internationalTransactions,
+      ...input.fees,
+    ];
+    logImportStep("pdf.confirm.received", {
+      fileName: input.fileName,
+      totalRows: allRows.length,
+      selectedRows: allRows.filter((transaction) => transaction.import).length,
+      possibleDuplicates: allRows.filter((transaction) => transaction.possibleDuplicate)
+        .length,
+    });
     const result = await confirmPdfInvoiceImport(input);
+    logImportStep("pdf.confirm.result", result);
     response.json(result);
   }),
 );
