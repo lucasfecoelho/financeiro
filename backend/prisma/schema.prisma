@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum CategoryType {
+  income
+  expense
+  neutral
+}
+
+enum TransactionDirection {
+  income
+  expense
+  neutral
+}
+
+enum PaymentMethod {
+  credit
+  debit
+  account
+  adjustment
+}
+
+enum TransactionSource {
+  manual
+  ofx
+  pdf_invoice
+}
+
+enum ReviewStatus {
+  reviewed
+  needs_review
+}
+
+enum FileType {
+  ofx
+  pdf_invoice
+  pdf_statement
+  txt
+  ofc
+}
+
+enum DetectedSource {
+  caixa_account
+  caixa_credit_card
+  unknown
+}
+
+enum ImportStatus {
+  previewed
+  imported
+  failed
+}
+
+enum InvoiceStatus {
+  open
+  closed
+  paid
+}
+
+enum MatchType {
+  contains
+  starts_with
+  equals
+  regex
+}
+
+model Category {
+  id           String         @id @default(cuid())
+  name         String         @unique
+  type         CategoryType
+  color        String?
+  icon         String?
+  isDefault    Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  transactions Transaction[]
+  rules        CategoryRule[]
+}
+
+model Transaction {
+  id                  String               @id @default(cuid())
+  date                DateTime
+  descriptionOriginal String
+  descriptionClean    String
+  amount              Decimal
+  direction           TransactionDirection
+  paymentMethod       PaymentMethod
+  source              TransactionSource
+  categoryId          String?
+  category            Category?            @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  reviewStatus        ReviewStatus         @default(needs_review)
+  externalId          String?
+  bankCode            String?
+  accountId           String?
+  cardLastDigits      String?
+  invoiceId           String?
+  invoice             Invoice?             @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  importBatchId       String?
+  importBatch         ImportBatch?         @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([date])
+  @@index([categoryId])
+  @@index([invoiceId])
+  @@index([importBatchId])
+  @@index([externalId])
+}
+
+model ImportBatch {
+  id             String         @id @default(cuid())
+  fileName       String
+  fileType       FileType
+  detectedSource DetectedSource
+  status         ImportStatus
+  totalRows      Int            @default(0)
+  importedRows   Int            @default(0)
+  duplicatedRows Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  transactions   Transaction[]
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  cardName        String
+  cardLastDigits  String
+  referenceMonth  Int
+  referenceYear   Int
+  closingDay      Int
+  dueDay          Int
+  status          InvoiceStatus @default(open)
+  totalFromFile   Decimal?
+  totalCalculated Decimal?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  transactions    Transaction[]
+
+  @@index([referenceYear, referenceMonth])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CategoryRule {
+  id               String         @id @default(cuid())
+  pattern          String
+  matchType        MatchType
+  categoryId       String
+  category         Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  descriptionClean String?
+  paymentMethod    PaymentMethod?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([categoryId])
+}
