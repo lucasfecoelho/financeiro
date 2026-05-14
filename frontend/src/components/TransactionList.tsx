@@ -23,7 +23,7 @@ export function TransactionList({ transactions, compact }: TransactionListProps)
           <div>
             <p className="font-medium text-foreground">{transaction.description}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {transaction.source} · {transaction.paymentMethod}
+              {formatSource(transaction.source)} · {formatPaymentMethod(transaction.paymentMethod)}
             </p>
           </div>
           <div className="text-muted-foreground">{transaction.category}</div>
@@ -48,4 +48,25 @@ export function TransactionList({ transactions, compact }: TransactionListProps)
       ))}
     </div>
   );
+}
+
+function formatSource(value: string) {
+  const labels: Record<string, string> = {
+    manual: "Manual",
+    ofx: "Conta",
+    pdf_invoice: "Cartão",
+  };
+
+  return labels[value] ?? value;
+}
+
+function formatPaymentMethod(value: string) {
+  const labels: Record<string, string> = {
+    account: "Conta",
+    debit: "Débito",
+    credit: "Cartão",
+    adjustment: "Ajuste",
+  };
+
+  return labels[value] ?? value;
 }

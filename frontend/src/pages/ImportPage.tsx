@@ -17,10 +17,16 @@ import type {
   ApiPdfInvoicePreviewTransaction,
 } from "@/lib/apiTypes";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { setSelectedPeriod } from "@/lib/period";
 import { cn } from "@/lib/utils";
 import type { PageId } from "@/types";
 
 type ImportMode = "ofx" | "pdf";
+
+type ImportPageProps = {
+  embedded?: boolean;
+  onClose?: () => void;
+};
 
 function getInitialImportMode(): ImportMode {
   const requestedMode = window.sessionStorage.getItem("financas:import-mode");
@@ -28,7 +34,7 @@ function getInitialImportMode(): ImportMode {
   return requestedMode === "pdf" ? "pdf" : "ofx";
 }
 
-export function ImportPage() {
+export function ImportPage({ embedded = false, onClose }: ImportPageProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
@@ -41,6 +47,7 @@ export function ImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const { data: categories } = useApiQuery(api.categories);
   const { data: importBatches, refetch: refetchImportBatches } =
     useApiQuery(api.importBatches);
@@ -92,12 +99,14 @@ export function ImportPage() {
     try {
       if (mode === "ofx" && ofxPreview) {
         const importResult = await api.confirmOfx(ofxPreview);
+        persistImportedPeriod(importResult);
         setResult(importResult);
         await refetchImportBatches();
       }
 
       if (mode === "pdf" && pdfPreview) {
         const importResult = await api.confirmPdfInvoice(pdfPreview);
+        persistImportedPeriod(importResult);
         setResult(importResult);
         await refetchImportBatches();
       }
@@ -130,27 +139,36 @@ export function ImportPage() {
     setPdfPreview(null);
   }
 
+  function showHistory() {
+    setIsHistoryOpen(true);
+    window.setTimeout(() => {
+      historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
   return (
     <div>
-      <PageHeader
-        eyebrow="importação"
-        title="Importe conta e fatura com prévia."
-        description="OFX da conta Caixa e PDF da fatura do cartão passam por prévia antes de qualquer gravação no SQLite."
-      />
+      {!embedded && (
+        <PageHeader
+          eyebrow="importação"
+          title="Traga seus arquivos para cá."
+          description="Escolha o arquivo, confira os lançamentos e confirme quando tudo estiver pronto."
+        />
+      )}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <ImportCard
           active={mode === "ofx"}
-          title="OFX da conta Caixa"
-          description="Receitas, despesas no débito, PIX, TEV e lançamentos da conta."
+          title="Conta Caixa - OFX"
+          description="Movimentos da conta, PIX, débito e receitas."
           icon={FileClock}
           status="ativo"
           onClick={() => resetForMode("ofx")}
         />
         <ImportCard
           active={mode === "pdf"}
-          title="PDF da fatura Caixa"
-          description="Compras nacionais, internacionais, IOF e total da fatura."
+          title="Fatura Caixa - PDF"
+          description="Compras e total da fatura do cartão."
           icon={CreditCard}
           status="ativo"
           onClick={() => resetForMode("pdf")}
@@ -161,8 +179,8 @@ export function ImportPage() {
         title={mode === "ofx" ? "Selecionar arquivo OFX" : "Selecionar PDF da fatura"}
         description={
           mode === "ofx"
-            ? "A prévia do OFX não grava lançamentos no banco."
-            : "O PDF precisa ter texto selecionável; OCR fica para uma etapa futura."
+            ? "Confira os movimentos da conta antes de confirmar."
+            : "Confira compras, taxas e totais antes de confirmar."
         }
         className="mt-6"
       >
@@ -219,9 +237,8 @@ export function ImportPage() {
           <ImportResultPanel
             result={result}
             mode={mode}
-            onShowHistory={() =>
-              historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-            }
+            onClose={onClose}
+            onShowHistory={showHistory}
             onReset={resetCurrentImport}
           />
         </div>
@@ -250,7 +267,11 @@ export function ImportPage() {
       )}
 
       <div ref={historyRef}>
-        <ImportHistoryPanel batches={importBatches ?? []} />
+        <ImportHistoryPanel
+          batches={importBatches ?? []}
+          isOpen={isHistoryOpen}
+          onToggle={() => setIsHistoryOpen((current) => !current)}
+        />
       </div>
     </div>
   );
@@ -263,11 +284,13 @@ function navigateToPage(page: PageId) {
 function ImportResultPanel({
   result,
   mode,
+  onClose,
   onShowHistory,
   onReset,
 }: {
   result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult;
   mode: ImportMode;
+  onClose?: () => void;
   onShowHistory: () => void;
   onReset: () => void;
 }) {
@@ -287,18 +310,17 @@ function ImportResultPanel({
   const description = allRowsAreDuplicates
     ? "O arquivo foi conferido, mas todas as linhas bateram com lançamentos existentes. Para revisar, abra Lançamentos ou importe outro arquivo."
     : nothingImported
-      ? "A confirmação chegou ao backend, mas nenhuma linha selecionada virou lançamento novo. Confira duplicados, seleção das linhas e tente novamente se necessário."
+      ? "Nenhuma linha selecionada virou lançamento novo. Confira duplicados, seleção das linhas e tente novamente se necessário."
       : mode === "ofx"
-        ? "Os lançamentos OFX aprovados foram salvos no SQLite e já podem aparecer em Lançamentos e no Dashboard do mês."
-        : "A fatura e os lançamentos aprovados foram salvos no SQLite e já podem aparecer em Fatura Caixa, Lançamentos e no Dashboard.";
+        ? "Os lançamentos aprovados já estão prontos para consulta."
+        : "A fatura e os lançamentos aprovados já estão prontos para consulta.";
 
   return (
     <Panel title={title} description={description} className="mt-6">
       <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
         <Meta label="Arquivo referente a" value={periodLabel} />
         <Meta label="Tipo" value={result.importType === "ofx" ? "OFX" : "PDF fatura"} />
-        <Meta label="Importação" value={result.importBatchId} />
-        <Meta label="Destino" value={result.importedRows > 0 ? "SQLite" : "Sem novos lançamentos"} />
+        <Meta label="Destino" value={result.importedRows > 0 ? "Lançamentos" : "Sem novos lançamentos"} />
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="Total lido" value={result.totalRows} />
@@ -346,6 +368,15 @@ function ImportResultPanel({
         >
           Ver todas as importações
         </button>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition hover:bg-accent"
+          >
+            Fechar
+          </button>
+        )}
       </div>
     </Panel>
   );
@@ -354,13 +385,15 @@ function ImportResultPanel({
 function navigateToImportedTransactions(
   result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult,
 ) {
+  persistImportedPeriod(result);
+
   window.sessionStorage.setItem(
     "financas:transactions-filter",
     JSON.stringify({
       importBatchId: result.importBatchId,
       month: result.month ? String(result.month) : "",
       year: result.year ? String(result.year) : "",
-      label: `importação ${result.importBatchId}`,
+      label: "lançamentos importados agora",
     }),
   );
   navigateToPage("lancamentos");
@@ -370,6 +403,7 @@ function navigateToImportedDashboard(
   result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult,
 ) {
   if (result.month && result.year) {
+    persistImportedPeriod(result);
     window.sessionStorage.setItem(
       "financas:dashboard-filter",
       JSON.stringify({
@@ -380,6 +414,17 @@ function navigateToImportedDashboard(
     );
   }
   navigateToPage("inicio");
+}
+
+function persistImportedPeriod(result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult) {
+  if (!result.month || !result.year) {
+    return;
+  }
+
+  setSelectedPeriod({
+    month: String(result.month),
+    year: String(result.year),
+  });
 }
 
 function formatImportPeriod(result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmResult) {
@@ -394,14 +439,35 @@ function formatImportPeriod(result: ApiOfxConfirmResult | ApiPdfInvoiceConfirmRe
   return "período não identificado";
 }
 
-function ImportHistoryPanel({ batches }: { batches: ApiImportBatch[] }) {
+function ImportHistoryPanel({
+  batches,
+  isOpen,
+  onToggle,
+}: {
+  batches: ApiImportBatch[];
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
   return (
     <Panel
       title="Histórico de importações"
-      description="Últimos arquivos confirmados e contagens gravadas no SQLite."
+      description="Últimos arquivos confirmados e o que entrou em cada um."
       className="mt-6"
+      action={
+        <button
+          type="button"
+          onClick={onToggle}
+          className="h-9 rounded-lg border border-border px-3 text-sm font-medium text-muted-foreground transition hover:bg-accent"
+        >
+          {isOpen ? "Ocultar" : "Mostrar"}
+        </button>
+      }
     >
-      {batches.length === 0 ? (
+      {!isOpen ? (
+        <p className="text-sm text-muted-foreground">
+          Consulte o histórico quando precisar conferir uma importação antiga.
+        </p>
+      ) : batches.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Nenhuma importação confirmada ainda.
         </p>
@@ -549,6 +615,11 @@ function OfxPreviewPanel({
               categoryId: categoryId || null,
               categoryName: category?.name ?? "A revisar",
               reviewStatus: isReviewCategory ? "needs_review" : "reviewed",
+              categorySuggestionSource: isReviewCategory ? "needs_review" : "heuristic",
+              categorySuggestionReason: isReviewCategory
+                ? "escolhido para revisão"
+                : "ajustado na prévia",
+              categorySuggestionConfidence: isReviewCategory ? "low" : "high",
             };
           })
         }
@@ -565,7 +636,7 @@ function OfxPreviewPanel({
       </p>
       {isConfirming && (
         <p className="mt-3 rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground">
-          Enviando confirmação ao backend e gravando no SQLite...
+          Confirmando importação e preparando seus lançamentos...
         </p>
       )}
     </Panel>
@@ -669,6 +740,11 @@ function PdfPreviewPanel({
               categoryId: categoryId || null,
               categoryName: category?.name ?? "A revisar",
               reviewStatus: isReviewCategory ? "needs_review" : "reviewed",
+              categorySuggestionSource: isReviewCategory ? "needs_review" : "heuristic",
+              categorySuggestionReason: isReviewCategory
+                ? "escolhido para revisão"
+                : "ajustado na prévia",
+              categorySuggestionConfidence: isReviewCategory ? "low" : "high",
             };
           })
         }
@@ -692,6 +768,11 @@ function PdfPreviewPanel({
               categoryId: categoryId || null,
               categoryName: category?.name ?? "A revisar",
               reviewStatus: isReviewCategory ? "needs_review" : "reviewed",
+              categorySuggestionSource: isReviewCategory ? "needs_review" : "heuristic",
+              categorySuggestionReason: isReviewCategory
+                ? "escolhido para revisão"
+                : "ajustado na prévia",
+              categorySuggestionConfidence: isReviewCategory ? "low" : "high",
             };
           })
         }
@@ -715,6 +796,11 @@ function PdfPreviewPanel({
               categoryId: categoryId || null,
               categoryName: category?.name ?? "A revisar",
               reviewStatus: isReviewCategory ? "needs_review" : "reviewed",
+              categorySuggestionSource: isReviewCategory ? "needs_review" : "heuristic",
+              categorySuggestionReason: isReviewCategory
+                ? "escolhido para revisão"
+                : "ajustado na prévia",
+              categorySuggestionConfidence: isReviewCategory ? "low" : "high",
             };
           })
         }
@@ -725,7 +811,7 @@ function PdfPreviewPanel({
       </p>
       {isConfirming && (
         <p className="mt-3 rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground">
-          Enviando confirmação ao backend e gravando no SQLite...
+          Confirmando importação e preparando sua fatura...
         </p>
       )}
     </Panel>
@@ -763,7 +849,7 @@ function OfxPreviewTable({
         <span>Descrição</span>
         <span className="text-right">Valor</span>
         <span>Direcao</span>
-        <span>Pagamento</span>
+        <span>Forma</span>
         <span>Categoria</span>
         <span>Duplicado</span>
       </div>
@@ -787,9 +873,10 @@ function OfxPreviewTable({
                 className="h-10 w-full rounded-lg border border-border bg-secondary/35 px-3 text-foreground outline-none transition focus:border-primary/50"
               />
               <p className="mt-1 text-xs text-muted-foreground">Original: {row.memo}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                ID: {row.fitId ?? row.externalId}
-              </p>
+              <SuggestionHint
+                source={row.categorySuggestionSource}
+                reason={row.categorySuggestionReason}
+              />
             </div>
             <Amount
               value={row.direction === "expense" ? -Math.abs(row.amount) : Math.abs(row.amount)}
@@ -804,8 +891,8 @@ function OfxPreviewTable({
               }
               className="h-10 rounded-lg border border-border bg-secondary/35 px-3 text-foreground outline-none transition focus:border-primary/50"
             >
-              <option value="expense">Despesa</option>
-              <option value="income">Receita</option>
+              <option value="expense">Saída</option>
+              <option value="income">Entrada</option>
               <option value="neutral">Neutro</option>
             </select>
             <select
@@ -886,6 +973,10 @@ function PdfSectionTable({
               <div>
                 <p className="font-medium text-foreground">{row.descriptionOriginal}</p>
                 {row.isFee && <p className="mt-1 text-xs text-amber-200">taxa/IOF</p>}
+                <SuggestionHint
+                  source={row.categorySuggestionSource}
+                  reason={row.categorySuggestionReason}
+                />
               </div>
               <Amount value={-Math.abs(row.amount)} />
               <select
@@ -947,6 +1038,27 @@ function DuplicatePill({ duplicate }: { duplicate: boolean }) {
     <StatusPill tone={duplicate ? "review" : "neutral"}>
       {duplicate ? "possível" : "não"}
     </StatusPill>
+  );
+}
+
+function SuggestionHint({
+  source,
+  reason,
+}: {
+  source: "user_rule" | "heuristic" | "needs_review";
+  reason: string;
+}) {
+  const label =
+    source === "user_rule"
+      ? "regra sua"
+      : source === "heuristic"
+        ? "sugestão automática"
+        : "revisar";
+
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      {label}: {reason}
+    </p>
   );
 }
 

@@ -12,6 +12,15 @@ const config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: [
+          "Manrope",
+          "Inter",
+          "ui-sans-serif",
+          "system-ui",
+          "sans-serif",
+        ],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -54,7 +63,7 @@ const config = {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        soft: "0 18px 60px rgba(0, 0, 0, 0.24)",
+        soft: "0 18px 60px color-mix(in srgb, hsl(var(--foreground)) 12%, transparent)",
       },
     },
   },

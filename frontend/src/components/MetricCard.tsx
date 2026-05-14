@@ -18,13 +18,13 @@ export function MetricCard({ metric }: MetricCardProps) {
   const Icon = metric.icon;
 
   return (
-    <article className="rounded-lg border border-border bg-card p-5 shadow-soft">
+    <article className="surface-hover rounded-2xl border border-border/80 bg-card p-5 shadow-soft">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm text-muted-foreground">{metric.label}</p>
           <p
             className={cn(
-              "mt-3 text-2xl font-semibold tracking-normal",
+              "mt-3 text-2xl font-extrabold tracking-tight",
               metric.value < 0 ? "text-rose-200" : "text-foreground",
             )}
           >
@@ -33,7 +33,7 @@ export function MetricCard({ metric }: MetricCardProps) {
         </div>
         <div
           className={cn(
-            "flex size-10 items-center justify-center rounded-lg border",
+            "flex size-11 items-center justify-center rounded-xl border",
             toneClasses[metric.tone],
           )}
         >

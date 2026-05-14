@@ -81,6 +81,7 @@ export type TransactionFilters = {
   source?: ApiTransaction["source"] | "";
   reviewStatus?: ApiTransaction["reviewStatus"] | "";
   importBatchId?: string;
+  invoiceId?: string;
 };
 
 export type UpdateTransactionInput = Partial<{
@@ -166,6 +167,9 @@ export type ApiOfxPreviewTransaction = {
   reviewStatus: "reviewed" | "needs_review";
   categoryId: string | null;
   categoryName: string;
+  categorySuggestionSource: "user_rule" | "heuristic" | "needs_review";
+  categorySuggestionReason: string;
+  categorySuggestionConfidence: "high" | "medium" | "low";
   descriptionClean: string | null;
   possibleDuplicate: boolean;
 };
@@ -208,6 +212,9 @@ export type ApiPdfInvoicePreviewTransaction = {
   descriptionClean: string | null;
   reviewStatus: "reviewed" | "needs_review";
   suggestedCategory: string;
+  categorySuggestionSource: "user_rule" | "heuristic" | "needs_review";
+  categorySuggestionReason: string;
+  categorySuggestionConfidence: "high" | "medium" | "low";
   possibleDuplicate: boolean;
 };
 
@@ -267,6 +274,7 @@ export type ApiDashboardCategoryExpense = {
 };
 
 export type ApiDashboard = {
+  scope: "month" | "year" | "all";
   month: number;
   year: number;
   totalIncome: number;
@@ -276,7 +284,26 @@ export type ApiDashboard = {
   debitTotal: number;
   accountTotal: number;
   needsReviewCount: number;
+  needsReviewTotal: number;
   expensesByCategory: ApiDashboardCategoryExpense[];
+  expensesByDay: Array<{
+    date: string;
+    total: number;
+  }>;
+  previous: null | {
+    totalIncome: number;
+    totalExpense: number;
+    balanceEstimated: number;
+    creditTotal: number;
+    debitTotal: number;
+    accountTotal: number;
+    expensesByCategory: ApiDashboardCategoryExpense[];
+  };
+  monthlyTrend: Array<{
+    month: number;
+    income: number;
+    expense: number;
+  }>;
   latestTransactions: ApiTransaction[];
   biggestTransactions: ApiTransaction[];
 };

@@ -1,11 +1,11 @@
 import { prisma } from "../lib/database.js";
 import type { ParsedPdfInvoice, ParsedPdfInvoiceTransaction } from "./pdfInvoiceParser.js";
-import { findMatchingRule } from "./categoryRuleService.js";
 import { logImportStep } from "./importDiagnostics.js";
 import {
   amountForLegacyComparison,
   normalizeTransactionAmount,
 } from "./transactionAmount.js";
+import { categorizeTransaction } from "./categorizationService.js";
 
 export type PdfInvoicePreviewTransaction = {
   previewId: string;
@@ -20,6 +20,9 @@ export type PdfInvoicePreviewTransaction = {
   descriptionClean: string | null;
   reviewStatus: "reviewed" | "needs_review";
   suggestedCategory: string;
+  categorySuggestionSource: "user_rule" | "heuristic" | "needs_review";
+  categorySuggestionReason: string;
+  categorySuggestionConfidence: "high" | "medium" | "low";
   possibleDuplicate: boolean;
 };
 
@@ -48,7 +51,7 @@ export async function buildPdfInvoicePreview(
   const categories = await prisma.category.findMany();
   const rules = await prisma.categoryRule.findMany({
     include: { category: true },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
   });
   const transactions = [
     ...parsedInvoice.nationalTransactions,
@@ -245,16 +248,19 @@ async function buildPreviewTransaction(
   categories: Awaited<ReturnType<typeof prisma.category.findMany>>,
   rules: Awaited<ReturnType<typeof prisma.categoryRule.findMany<{ include: { category: true } }>>>,
 ): Promise<PdfInvoicePreviewTransaction> {
-  const ruleMatch = findMatchingRule(
-    {
+  const categorization = categorizeTransaction({
+    input: {
       descriptionOriginal: transaction.descriptionOriginal,
       descriptionClean: transaction.descriptionOriginal,
+      amount: transaction.amount,
+      direction: "expense",
       paymentMethod: "credit",
+      source: "pdf_invoice",
+      isFee: transaction.isFee,
     },
+    categories,
     rules,
-  );
-  const category =
-    ruleMatch?.category ?? pickCategory(transaction.suggestedCategory, categories);
+  });
   const duplicate = await findPdfInvoiceDuplicate({
     row: {
       date: transaction.date,
@@ -272,11 +278,14 @@ async function buildPreviewTransaction(
     amount: transaction.amount,
     section: transaction.section,
     isFee: transaction.isFee,
-    categoryId: category?.id ?? null,
-    categoryName: category?.name ?? "A revisar",
-    descriptionClean: ruleMatch?.descriptionClean ?? null,
-    reviewStatus: ruleMatch ? "reviewed" : category?.name === "A revisar" ? "needs_review" : "reviewed",
+    categoryId: categorization.categoryId,
+    categoryName: categorization.categoryName,
+    descriptionClean: categorization.descriptionClean,
+    reviewStatus: categorization.reviewStatus,
     suggestedCategory: transaction.suggestedCategory,
+    categorySuggestionSource: categorization.source,
+    categorySuggestionReason: categorization.reason,
+    categorySuggestionConfidence: categorization.confidence,
     possibleDuplicate: Boolean(duplicate),
   };
 }
@@ -318,19 +327,6 @@ async function findPdfInvoiceDuplicate({
         normalizedDescription.includes(candidateDescription)
       );
     }) ?? null
-  );
-}
-
-function pickCategory(
-  categoryName: string,
-  categories: Awaited<ReturnType<typeof prisma.category.findMany>>,
-) {
-  return (
-    categories.find(
-      (category) => category.name.toUpperCase() === categoryName.toUpperCase(),
-    ) ??
-    categories.find((category) => category.name === "A revisar") ??
-    null
   );
 }
 

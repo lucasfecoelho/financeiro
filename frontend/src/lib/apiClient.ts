@@ -32,10 +32,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
       body,
     });
   } catch (error) {
-    const message =
-      error instanceof Error && error.message
-        ? `Nao foi possivel conectar ao backend: ${error.message}`
-        : "Nao foi possivel conectar ao backend.";
+    const message = "Não foi possível conectar agora. Confira se o app está aberto e tente novamente.";
     throw new ApiError(message, 0);
   }
 

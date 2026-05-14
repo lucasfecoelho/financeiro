@@ -36,7 +36,7 @@ export function matchesCategoryRule(
 export async function applyCategoryRulesToTransactions(transactionIds?: string[]) {
   const rules = await prisma.categoryRule.findMany({
     include: { category: true },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
   });
   const transactions = await prisma.transaction.findMany({
     where: transactionIds ? { id: { in: transactionIds } } : { reviewStatus: "needs_review" },

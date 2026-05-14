@@ -1,9 +1,9 @@
 import { prisma } from "../lib/database.js";
 import type { ParsedOfxStatement, ParsedOfxTransaction } from "./ofxParser.js";
 import { findOfxDuplicate } from "./duplicateService.js";
-import { findMatchingRule } from "./categoryRuleService.js";
 import { logImportStep } from "./importDiagnostics.js";
 import { normalizeTransactionAmount } from "./transactionAmount.js";
+import { categorizeTransaction } from "./categorizationService.js";
 
 export type OfxPreviewTransaction = {
   previewId: string;
@@ -19,6 +19,9 @@ export type OfxPreviewTransaction = {
   reviewStatus: "reviewed" | "needs_review";
   categoryId: string | null;
   categoryName: string;
+  categorySuggestionSource: "user_rule" | "heuristic" | "needs_review";
+  categorySuggestionReason: string;
+  categorySuggestionConfidence: "high" | "medium" | "low";
   descriptionClean: string | null;
   possibleDuplicate: boolean;
 };
@@ -48,28 +51,32 @@ export async function buildOfxPreview(
   fileName: string,
   statement: ParsedOfxStatement,
 ): Promise<OfxPreview> {
+  const categories = await prisma.category.findMany();
   const rules = await prisma.categoryRule.findMany({
     include: {
       category: true,
     },
     orderBy: {
-      createdAt: "asc",
+      createdAt: "desc",
     },
   });
-  const reviewCategory = await getReviewCategory();
 
   const transactions = await Promise.all(
     statement.transactions.map(async (transaction, index) => {
       const classification = classifyOfxTransaction(transaction);
       const normalizedAmount = normalizeTransactionAmount(transaction.amount);
-      const ruleMatch = findMatchingRule(
-        {
+      const categorization = categorizeTransaction({
+        input: {
           descriptionOriginal: transaction.memo,
           descriptionClean: transaction.memo,
+          amount: normalizedAmount,
+          direction: classification.direction,
           paymentMethod: classification.paymentMethod,
+          source: "ofx",
         },
+        categories,
         rules,
-      );
+      });
       const duplicate = await findOfxDuplicate({
         bankCode: statement.bankCode,
         accountId: statement.accountId,
@@ -77,8 +84,6 @@ export async function buildOfxPreview(
         amount: normalizedAmount,
         date: transaction.date,
       });
-      const descriptionClean =
-        ruleMatch?.descriptionClean ?? cleanDescription(transaction.memo);
 
       return {
         previewId: `${transaction.externalId}-${index}`,
@@ -91,10 +96,13 @@ export async function buildOfxPreview(
         memo: transaction.memo,
         direction: classification.direction,
         paymentMethod: classification.paymentMethod,
-        reviewStatus: ruleMatch ? ("reviewed" as const) : ("needs_review" as const),
-        categoryId: ruleMatch?.categoryId ?? reviewCategory?.id ?? null,
-        categoryName: ruleMatch?.category.name ?? reviewCategory?.name ?? "A revisar",
-        descriptionClean,
+        reviewStatus: categorization.reviewStatus,
+        categoryId: categorization.categoryId,
+        categoryName: categorization.categoryName,
+        categorySuggestionSource: categorization.source,
+        categorySuggestionReason: categorization.reason,
+        categorySuggestionConfidence: categorization.confidence,
+        descriptionClean: categorization.descriptionClean,
         possibleDuplicate: Boolean(duplicate),
       };
     }),
@@ -252,14 +260,6 @@ function classifyOfxTransaction(transaction: ParsedOfxTransaction) {
   }
 
   return { direction: "neutral" as const, paymentMethod: "account" as const };
-}
-
-async function getReviewCategory() {
-  return prisma.category.findUnique({
-    where: {
-      name: "A revisar",
-    },
-  });
 }
 
 function parseDateOnly(value: string) {

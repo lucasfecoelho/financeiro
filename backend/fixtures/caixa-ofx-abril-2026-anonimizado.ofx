@@ -28,29 +28,80 @@ NEWFILEUID:NONE
           <DTEND>20260430235959[-3:BRT]
           <STMTTRN>
             <TRNTYPE>DEBIT
-            <DTPOSTED>20260403120000[-3:BRT]
+            <DTPOSTED>20260401120000[-3:BRT]
             <TRNAMT>-42.90
             <FITID>CAIXA-ABRIL-ANON-0001
             <MEMO>COMPRA CARTAO DEBITO MERCADO TESTE
           </STMTTRN>
           <STMTTRN>
             <TRNTYPE>DEBIT
+            <DTPOSTED>20260402120000[-3:BRT]
+            <TRNAMT>-58.40
+            <FITID>CAIXA-ABRIL-ANON-0002
+            <MEMO>COMPRA CARTAO DEBITO IFOOD TESTE
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT
+            <DTPOSTED>20260403120000[-3:BRT]
+            <TRNAMT>-20.00
+            <FITID>CAIXA-ABRIL-ANON-0003
+            <MEMO>IOF COMPRA INTERNACIONAL TESTE
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT
             <DTPOSTED>20260404120000[-3:BRT]
-            <TRNAMT>-150.00
-            <MEMO>ENVIO PIX FULANO TESTE
+            <TRNAMT>-199.99
+            <FITID>CAIXA-ABRIL-ANON-0004
+            <MEMO>COMPRA CARTAO DEBITO CENTAURO TESTE
           </STMTTRN>
           <STMTTRN>
             <TRNTYPE>CREDIT
             <DTPOSTED>20260405120000[-3:BRT]
             <TRNAMT>2500.00
-            <FITID>CAIXA-ABRIL-ANON-0003
-            <MEMO>CRED PIX EMPRESA TESTE
+            <FITID>CAIXA-ABRIL-ANON-0005
+            <MEMO>CRED PIX
           </STMTTRN>
           <STMTTRN>
-            <TRNTYPE>CREDIT
-            <DTPOSTED>20260430120000[-3:BRT]
-            <TRNAMT>75,35
-            <MEMO>CRED TEV REEMBOLSO TESTE
+            <TRNTYPE>DEBIT
+            <DTPOSTED>20260406120000[-3:BRT]
+            <TRNAMT>-150.00
+            <FITID>CAIXA-ABRIL-ANON-0006
+            <MEMO>ENVIO PIX
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT
+            <DTPOSTED>20260407120000[-3:BRT]
+            <TRNAMT>-12.34
+            <FITID>CAIXA-ABRIL-ANON-0007
+            <MEMO>COMPRA
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT
+            <DTPOSTED>20260408120000[-3:BRT]
+            <TRNAMT>-99.90
+            <FITID>CAIXA-ABRIL-ANON-0008
+            <MEMO>MICROSOFT SUBSCRIPTION TESTE
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT
+            <DTPOSTED>20260409120000[-3:BRT]
+            <TRNAMT>-35.70
+            <FITID>CAIXA-ABRIL-ANON-0009
+            <MEMO>FARMACIA TESTE
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT
+            <DTPOSTED>20260410120000[-3:BRT]
+            <TRNAMT>-310.45
+            <FITID>CAIXA-ABRIL-ANON-0010
+            <MEMO>SUPERMERCADO TESTE
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT
+            <DTPOSTED>20260411120000[-3:BRT]
+            <TRNAMT>-49.00
+            <FITID>CAIXA-ABRIL-ANON-0011
+            <MEMO>OPENAI CHATGPT SUBSCR TESTE
           </STMTTRN>
         </BANKTRANLIST>
       </STMTRS>

@@ -89,8 +89,18 @@ export const api = {
       method: "POST",
       body: { transactionIds },
     }),
-  dashboard: ({ month, year }: { month: string; year: string }) =>
-    apiRequest<ApiDashboard>(`/api/dashboard?month=${month}&year=${year}`),
+  dashboard: ({
+    month,
+    year,
+    scope = "month",
+  }: {
+    month: string;
+    year: string;
+    scope?: ApiDashboard["scope"];
+  }) =>
+    apiRequest<ApiDashboard>(
+      `/api/dashboard?month=${month}&year=${year}&scope=${scope}`,
+    ),
   settings: () => apiRequest<ApiSetting[]>("/api/settings"),
   updateSetting: (key: string, value: string) =>
     apiRequest<ApiSetting>(`/api/settings/${encodeURIComponent(key)}`, {

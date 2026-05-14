@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, Bot, Folder, Save, Trash2 } from "lucide-react";
+import { Archive, Folder, Moon, Save, Sun, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/Panel";
 import { ErrorBlock, LoadingBlock } from "@/components/StateBlocks";
@@ -19,6 +19,11 @@ type SettingsForm = {
   dataDirectory: string;
 };
 
+type SettingsPageProps = {
+  theme?: "light" | "dark";
+  onToggleTheme?: () => void;
+};
+
 const defaultForm: SettingsForm = {
   cardClosingDay: "25",
   cardDueDay: "10",
@@ -26,7 +31,7 @@ const defaultForm: SettingsForm = {
   dataDirectory: "C:\\Financeiro",
 };
 
-export function SettingsPage() {
+export function SettingsPage({ theme = "dark", onToggleTheme }: SettingsPageProps = {}) {
   const { data: settings, error, isLoading, refetch } = useApiQuery(api.settings);
   const { data: categories, refetch: refetchCategories } = useApiQuery(api.categories);
   const {
@@ -41,7 +46,6 @@ export function SettingsPage() {
     isLoading: isLoadingBackups,
     refetch: refetchBackups,
   } = useApiQuery(api.backups);
-  const { data: aiStatus } = useApiQuery(api.aiStatus);
   const [form, setForm] = useState<SettingsForm>(defaultForm);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">(
     "idle",
@@ -83,7 +87,7 @@ export function SettingsPage() {
 
       await refetch();
       setSaveState("saved");
-      setSaveMessage("Configurações salvas no banco local.");
+      setSaveMessage("Configurações salvas.");
     } catch (caughtError) {
       setSaveState("error");
       setSaveMessage(
@@ -117,8 +121,8 @@ export function SettingsPage() {
     <div>
       <PageHeader
         eyebrow="configurações"
-        title="Preferências locais e regras."
-        description="Ajuste dados do cartão e mantenha regras simples para categorizar lançamentos futuros."
+        title="Preferências e regras."
+        description="Ajuste cartão, pastas e regras para deixar a organização mais leve."
       />
 
       {isLoading && (
@@ -155,40 +159,44 @@ export function SettingsPage() {
                   value={form.cardName}
                   onChange={(value) => updateField("cardName", value)}
                 />
-                <ReadOnlyField label="App" value={settingsMap.get("appName") ?? "financas"} />
               </div>
             </Panel>
 
             <Panel
-              title="IA assistiva opcional"
-              description="Disponibilidade da integração local com OpenAI."
+              title="Aparência"
+              description="Escolha o tema que deixa a leitura mais confortável."
             >
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-secondary/35 px-4 py-4">
-                  <div className="flex items-center gap-3">
-                    <Bot className="size-5 text-primary" aria-hidden="true" />
-                    <div>
-                      <p className="text-sm font-medium">
-                        {aiStatus?.enabled ? "IA configurada" : "IA desativada"}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {aiStatus?.message ??
-                          "Configure OPENAI_API_KEY no backend para liberar sugestões."}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                    {aiStatus?.enabled ? "opcional ativa" : "opcional"}
+              <button
+                type="button"
+                onClick={onToggleTheme}
+                disabled={!onToggleTheme}
+                className="flex w-full items-center justify-between gap-4 rounded-2xl border border-border bg-secondary/35 px-4 py-4 text-left transition hover:-translate-y-0.5 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
+              >
+                <span>
+                  <span className="block text-sm font-semibold text-foreground">
+                    {theme === "dark" ? "Tema escuro" : "Tema claro"}
                   </span>
-                </div>
-              </div>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {theme === "dark" ? "Trocar para claro" : "Trocar para escuro"}
+                  </span>
+                </span>
+                <span className="flex size-10 items-center justify-center rounded-xl border border-border bg-card text-primary">
+                  {theme === "dark" ? (
+                    <Moon className="size-4" aria-hidden="true" />
+                  ) : (
+                    <Sun className="size-4" aria-hidden="true" />
+                  )}
+                </span>
+              </button>
             </Panel>
+
           </div>
 
-          <Panel title="Dados locais" className="mt-6">
+          <Panel title="Arquivos" className="mt-6">
             <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
               <Field
-                label="Pasta local de dados"
+                label="Pasta de dados"
                 value={form.dataDirectory}
                 icon={<Folder className="size-4 text-primary" aria-hidden="true" />}
                 onChange={(value) => updateField("dataDirectory", value)}
@@ -272,7 +280,7 @@ function BackupPanel({
   return (
     <Panel
       title="Backup"
-      description="Cópias manuais do SQLite local em C:\\Financeiro\\backups."
+      description="Cópias manuais para guardar seu histórico com tranquilidade."
       className="mt-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -281,7 +289,7 @@ function BackupPanel({
             <Archive className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <p className="text-sm font-medium">Backup manual do banco local</p>
+            <p className="text-sm font-medium">Backup manual</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Nenhum backup é apagado automaticamente.
             </p>
@@ -442,7 +450,7 @@ function CategoryRulesPanel({
               }
             />
             <RuleSelect
-              label="Pagamento"
+              label="Forma"
               value={draft.paymentMethod ?? ""}
               onChange={(value) =>
                 setDraft((current) => ({
@@ -551,7 +559,7 @@ function RuleRow({
         }
       />
       <RuleSelect
-        label="Pagamento"
+        label="Forma"
         value={draft.paymentMethod ?? ""}
         onChange={(value) =>
           setDraft((current) => ({
@@ -604,17 +612,6 @@ function Field({
           className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
         />
         {suffix && <span className="text-muted-foreground">{suffix}</span>}
-      </div>
-    </label>
-  );
-}
-
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm text-muted-foreground">{label}</span>
-      <div className="flex h-11 items-center rounded-lg border border-border bg-secondary/25 px-3 text-sm text-muted-foreground">
-        {value}
       </div>
     </label>
   );
@@ -703,6 +700,6 @@ const paymentMethodOptions = [
   { label: "Qualquer", value: "" },
   { label: "Conta", value: "account" },
   { label: "Débito", value: "debit" },
-  { label: "Crédito", value: "credit" },
+  { label: "Cartão", value: "credit" },
   { label: "Ajuste", value: "adjustment" },
 ];

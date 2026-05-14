@@ -7,8 +7,6 @@ export type PageId =
   | "fatura-caixa"
   | "configuracoes";
 
-export type HealthState = "checking" | "ok" | "offline";
-
 export type ReviewStatus = "reviewed" | "pending";
 
 export type InvoiceStatus = "open" | "closed" | "paid";

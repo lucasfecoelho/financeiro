@@ -282,6 +282,7 @@ function buildTransactionWhere(query: Record<string, unknown>) {
     source?: TransactionSource;
     reviewStatus?: ReviewStatus;
     importBatchId?: string;
+    invoiceId?: string;
   } = {};
 
   const month = toNumber(query.month);
@@ -291,6 +292,11 @@ function buildTransactionWhere(query: Record<string, unknown>) {
     where.date = {
       gte: new Date(Date.UTC(year, month - 1, 1)),
       lt: new Date(Date.UTC(month === 12 ? year + 1 : year, month === 12 ? 0 : month, 1)),
+    };
+  } else if (year) {
+    where.date = {
+      gte: new Date(Date.UTC(year, 0, 1)),
+      lt: new Date(Date.UTC(year + 1, 0, 1)),
     };
   }
 
@@ -316,6 +322,10 @@ function buildTransactionWhere(query: Record<string, unknown>) {
 
   if (typeof query.importBatchId === "string" && query.importBatchId.trim()) {
     where.importBatchId = query.importBatchId.trim();
+  }
+
+  if (typeof query.invoiceId === "string" && query.invoiceId.trim()) {
+    where.invoiceId = query.invoiceId.trim();
   }
 
   return where;

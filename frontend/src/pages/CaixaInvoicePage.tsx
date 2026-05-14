@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, CreditCard, ReceiptText } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  CreditCard,
+  FileDown,
+  ListChecks,
+  ReceiptText,
+  Search,
+  WalletCards,
+} from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/Panel";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "@/components/StateBlocks";
@@ -8,6 +18,7 @@ import { useApiQuery } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api";
 import type { ApiInvoice, ApiTransaction } from "@/lib/apiTypes";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { getSelectedPeriod, setSelectedPeriod } from "@/lib/period";
 import { cn } from "@/lib/utils";
 
 type SectionType = "national" | "international" | "fee";
@@ -34,9 +45,23 @@ export function CaixaInvoicePage() {
   );
 
   useEffect(() => {
-    if (!selectedInvoiceId && invoices?.[0]) {
-      setSelectedInvoiceId(invoices[0].id);
+    if (!invoices) {
+      return;
     }
+
+    const selectedPeriod = getSelectedPeriod();
+    const invoiceForPeriod = invoices.find(
+      (item) =>
+        item.referenceMonth === Number(selectedPeriod.month) &&
+        item.referenceYear === Number(selectedPeriod.year),
+    );
+
+    if (invoiceForPeriod) {
+      setSelectedInvoiceId(invoiceForPeriod.id);
+      return;
+    }
+
+    setSelectedInvoiceId("");
   }, [invoices, selectedInvoiceId]);
 
   const transactions = invoice?.transactions ?? [];
@@ -66,6 +91,39 @@ export function CaixaInvoicePage() {
   const difference =
     invoice?.difference ?? (totalFromFile === null ? null : totalFromFile - totalCalculated);
   const hasDifference = difference !== null && Math.abs(difference) > 0.01;
+  const pendingTransactions = transactions.filter(
+    (transaction) => transaction.reviewStatus === "needs_review",
+  );
+  const biggestTransaction = transactions
+    .filter((transaction) => classifyInvoiceTransaction(transaction) !== "fee")
+    .slice()
+    .sort((left, right) => Math.abs(Number(right.amount)) - Math.abs(Number(left.amount)))[0];
+  const internationalAndFeesTotal =
+    (invoice?.internationalTotal ?? 0) + (invoice?.feesTotal ?? 0);
+  const previousInvoice = useMemo(() => {
+    if (!invoice || !invoices) {
+      return null;
+    }
+
+    return (
+      invoices
+        .filter((item) => {
+          const currentKey = invoice.referenceYear * 100 + invoice.referenceMonth;
+          const itemKey = item.referenceYear * 100 + item.referenceMonth;
+          return item.id !== invoice.id && itemKey < currentKey;
+        })
+        .sort(
+          (left, right) =>
+            right.referenceYear * 100 +
+            right.referenceMonth -
+            (left.referenceYear * 100 + left.referenceMonth),
+        )[0] ?? null
+    );
+  }, [invoice, invoices]);
+  const previousComparison =
+    previousInvoice && invoice
+      ? totalCalculated - (previousInvoice.totalCalculated ?? 0)
+      : null;
 
   async function markAsPaid() {
     if (!invoice) {
@@ -91,19 +149,32 @@ export function CaixaInvoicePage() {
     <div>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <PageHeader
-          eyebrow="fatura caixa"
-          title="Acompanhe a fatura com clareza."
-          description="Veja totais, diferença, status, categorias e compras importadas do PDF da fatura Caixa."
+          eyebrow="cartão caixa"
+          title="Sua fatura, sem surpresa."
+          description="Compras, vencimento, categorias e pontos de revisão em um só lugar."
         />
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:w-[520px]">
+        <div className="grid gap-3 sm:grid-cols-[1fr_150px] xl:w-[560px]">
           <label className="block">
             <span className="mb-2 block text-sm text-muted-foreground">Fatura</span>
             <select
               value={selectedInvoiceId}
-              onChange={(event) => setSelectedInvoiceId(event.target.value)}
+              onChange={(event) => {
+                const nextInvoiceId = event.target.value;
+                const nextInvoice = invoices?.find((item) => item.id === nextInvoiceId);
+
+                setSelectedInvoiceId(nextInvoiceId);
+
+                if (nextInvoice) {
+                  setSelectedPeriod({
+                    month: String(nextInvoice.referenceMonth),
+                    year: String(nextInvoice.referenceYear),
+                  });
+                }
+              }}
               className="h-10 w-full rounded-lg border border-border bg-secondary/35 px-3 text-sm text-foreground outline-none transition focus:border-primary/50"
             >
+              <option value="">Nenhuma fatura neste mês</option>
               {(invoices ?? []).map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.cardName} {item.referenceMonth}/{item.referenceYear} final{" "}
@@ -157,20 +228,43 @@ export function CaixaInvoicePage() {
       {!isLoadingInvoices && !invoicesError && (invoices?.length ?? 0) === 0 && (
         <Panel>
           <EmptyBlock
-            title="Nenhuma fatura cadastrada ainda"
-            description="Importe um PDF de fatura Caixa para ver totais, compras nacionais, internacionais, taxas e resumo por categoria."
+            title="Nenhuma fatura por aqui ainda"
+            description="Importe o PDF da fatura Caixa para acompanhar compras, categorias e vencimento."
             action={
               <button
                 type="button"
                   onClick={() => navigateToImport("pdf")}
                 className="h-10 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
               >
-                Importar PDF da fatura
+                Importar fatura PDF
               </button>
             }
           />
         </Panel>
       )}
+
+      {!isLoadingInvoices &&
+        !isLoadingInvoice &&
+        !invoicesError &&
+        !invoiceError &&
+        (invoices?.length ?? 0) > 0 &&
+        !invoice && (
+          <Panel>
+            <EmptyBlock
+              title="Nenhuma fatura neste mês"
+              description="Não encontrei fatura para o período selecionado. Escolha outra fatura acima ou importe o PDF da Caixa."
+              action={
+                <button
+                  type="button"
+                  onClick={() => navigateToImport("pdf")}
+                  className="h-10 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
+                >
+                  Importar fatura PDF
+                </button>
+              }
+            />
+          </Panel>
+        )}
 
       {!isLoadingInvoices && !isLoadingInvoice && !invoicesError && !invoiceError && invoice && (
         <>
@@ -231,15 +325,52 @@ export function CaixaInvoicePage() {
               </div>
             </div>
             {message && <p className="mt-4 text-sm text-muted-foreground">{message}</p>}
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => navigateToInvoiceReview(invoice)}
+                disabled={pendingTransactions.length === 0}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-4 text-sm font-medium text-amber-100 transition hover:bg-amber-300/15 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <ListChecks className="size-4" aria-hidden="true" />
+                Revisar compras da fatura
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateToInvoiceTransactions(invoice)}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-accent"
+              >
+                <Search className="size-4" aria-hidden="true" />
+                Ver na consulta geral
+              </button>
+            </div>
           </Panel>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <InfoCard label="Nacionais" value={formatCurrency(invoice.nationalTotal ?? 0)} />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <InfoCard label="Total da fatura" value={formatCurrency(totalCalculated)} icon={CreditCard} />
             <InfoCard
-              label="Internacionais"
-              value={formatCurrency(invoice.internationalTotal ?? 0)}
+              label="Vencimento"
+              value={formatDate(buildInvoiceDate(invoice, invoice.dueDay))}
+              icon={CalendarClock}
             />
-            <InfoCard label="Taxas e IOF" value={formatCurrency(invoice.feesTotal ?? 0)} />
+            <InfoCard
+              label="Compras a revisar"
+              value={String(pendingTransactions.length)}
+              icon={ListChecks}
+              tone={pendingTransactions.length > 0 ? "warning" : undefined}
+            />
+            <InfoCard
+              label="Maior compra"
+              value={biggestTransaction ? formatCurrency(Math.abs(Number(biggestTransaction.amount))) : "-"}
+              helper={biggestTransaction?.descriptionClean}
+              icon={ReceiptText}
+            />
+            <InfoCard
+              label="Internacional/IOF"
+              value={formatCurrency(internationalAndFeesTotal)}
+              icon={WalletCards}
+            />
           </div>
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
@@ -310,6 +441,61 @@ export function CaixaInvoicePage() {
             </Panel>
           </div>
 
+          <div className="mt-6 grid gap-6 xl:grid-cols-3">
+            <Panel title="Maiores compras">
+              <CompactPurchaseList
+                rows={transactions
+                  .filter((transaction) => classifyInvoiceTransaction(transaction) !== "fee")
+                  .slice()
+                  .sort(
+                    (left, right) =>
+                      Math.abs(Number(right.amount)) - Math.abs(Number(left.amount)),
+                  )
+                  .slice(0, 5)}
+              />
+            </Panel>
+
+            <Panel title="Compras a revisar">
+              {pendingTransactions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Tudo revisado nesta fatura.
+                </p>
+              ) : (
+                <CompactPurchaseList rows={pendingTransactions.slice(0, 5)} />
+              )}
+            </Panel>
+
+            <Panel title="Comparação">
+              {previousInvoice ? (
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    Fatura anterior: {previousInvoice.referenceMonth}/
+                    {previousInvoice.referenceYear}
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-3 text-2xl font-semibold",
+                      (previousComparison ?? 0) > 0 ? "text-rose-100" : "text-emerald-100",
+                    )}
+                  >
+                    {previousComparison === null
+                      ? "-"
+                      : formatCurrency(Math.abs(previousComparison))}
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {previousComparison !== null && previousComparison > 0
+                      ? "acima da fatura anterior"
+                      : "abaixo da fatura anterior"}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Importe outra fatura para comparar evolução de gastos.
+                </p>
+              )}
+            </Panel>
+          </div>
+
           <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
             <PurchaseSection title="Compras nacionais" rows={nationalTransactions} />
             <PurchaseSection title="Compras internacionais" rows={internationalTransactions} />
@@ -325,10 +511,14 @@ export function CaixaInvoicePage() {
 function InfoCard({
   label,
   value,
+  helper,
+  icon: Icon,
   tone,
 }: {
   label: string;
   value: string;
+  helper?: string;
+  icon?: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   tone?: "warning";
 }) {
   return (
@@ -338,8 +528,14 @@ function InfoCard({
         tone === "warning" && "border-amber-300/20 bg-amber-300/10",
       )}
     >
-      <p className="text-sm text-muted-foreground">{label}</p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-muted-foreground">{label}</p>
+        {Icon && <Icon className="size-4 text-primary" aria-hidden={true} />}
+      </div>
       <p className="mt-3 text-xl font-semibold">{value}</p>
+      {helper && (
+        <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{helper}</p>
+      )}
     </article>
   );
 }
@@ -392,6 +588,30 @@ function PurchaseSection({
   );
 }
 
+function CompactPurchaseList({ rows }: { rows: ApiTransaction[] }) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted-foreground">Nada para mostrar aqui.</p>;
+  }
+
+  return (
+    <div className="divide-y divide-border/80">
+      {rows.map((row) => (
+        <div key={row.id} className="flex items-center justify-between gap-4 py-3 text-sm">
+          <div className="min-w-0">
+            <p className="truncate font-medium text-foreground">{row.descriptionClean}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatDate(row.date)} · {row.category?.name ?? "A revisar"}
+            </p>
+          </div>
+          <span className="shrink-0 font-semibold text-rose-200">
+            {formatCurrency(Math.abs(Number(row.amount)))}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function buildInvoiceDate(invoice: ApiInvoice, day: number) {
   const lastDayOfMonth = new Date(
     invoice.referenceYear,
@@ -408,8 +628,37 @@ function navigateToPage(page: "inicio" | "importar" | "lancamentos" | "fatura-ca
 }
 
 function navigateToImport(mode: "ofx" | "pdf") {
-  window.sessionStorage.setItem("financas:import-mode", mode);
-  navigateToPage("importar");
+  window.dispatchEvent(new CustomEvent("financas:open-import", { detail: { mode } }));
+}
+
+function navigateToInvoiceTransactions(invoice: ApiInvoice) {
+  window.sessionStorage.setItem(
+    "financas:transactions-filter",
+    JSON.stringify({
+      mode: "invoice",
+      month: String(invoice.referenceMonth),
+      year: String(invoice.referenceYear),
+      source: "pdf_invoice",
+      invoiceId: invoice.id,
+      label: `fatura ${invoice.referenceMonth}/${invoice.referenceYear}`,
+    }),
+  );
+  navigateToPage("lancamentos");
+}
+
+function navigateToInvoiceReview(invoice: ApiInvoice) {
+  window.sessionStorage.setItem(
+    "financas:transactions-filter",
+    JSON.stringify({
+      mode: "review",
+      month: String(invoice.referenceMonth),
+      year: String(invoice.referenceYear),
+      source: "pdf_invoice",
+      invoiceId: invoice.id,
+      label: `fatura ${invoice.referenceMonth}/${invoice.referenceYear}`,
+    }),
+  );
+  navigateToPage("lancamentos");
 }
 
 function classifyInvoiceTransaction(transaction: ApiTransaction): SectionType {
